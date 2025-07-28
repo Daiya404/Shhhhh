@@ -174,7 +174,8 @@ async def main():
         signal.signal(signal.SIGINT, signal_handler(bot))
     
     # Get token from environment variable or file
-    token = "MTM4Nzc4NDEwNzc2MDU1MDAwOQ.Gz_x78.jYxAf7JV6Wqz5Y1FUfeL_OM-RLQgXyccNvqyCg"
+    token = os.getenv("BOT_TOKEN", "").strip()
+
     if not token:
         try:
             token_file = Path('token.txt')
@@ -183,10 +184,12 @@ async def main():
                     token = f.read().strip()
             else:
                 logging.error("❌ No bot token found! Set BOT_TOKEN environment variable or create token.txt")
-                return
+                exit(1)  # Exit if token is not found
         except Exception as e:
             logging.error(f"❌ Error reading token file: {e}")
-            return
+            exit(1)
+
+    logging.info("✅ Bot token loaded successfully!")
     
     if not token:
         logging.error("❌ Bot token is empty!")
