@@ -6,11 +6,9 @@ from pathlib import Path
 import logging
 import re
 from typing import Dict, List
-
-# Import the custom admin check from our other cog
 from .bot_admin import BotAdmin
 
-# ... (The entire PERSONALITY dict and WordBlocker class are correct and do not need to be changed)
+# --- Personality Responses for this Cog ---
 PERSONALITY = {
     "word_added": "Noted. I will now watch for that word.",
     "word_removed": "Fine, I've removed that word from the blocklist.",
@@ -42,7 +40,7 @@ class WordBlocker(commands.Cog):
         user_regex = guild_cache.get("users", {}).get(user_id_str)
         
         if (global_regex and global_regex.search(content)) or \
-           (user_regex and user_regex.search(content)):
+            (user_regex and user_regex.search(content)):
             await self._handle_blocked_message(message)
             return True
         

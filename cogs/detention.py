@@ -9,7 +9,6 @@ from typing import Dict
 from .bot_admin import BotAdmin
 
 PERSONALITY = {
-    # ... (personality dict is the same)
     "detention_start": "Done. {user} has been placed in detention. Let's see if they learn their lesson.",
     "detention_progress": "Keep going, {user}. `{remaining}` more times. Don't mess it up.",
     "detention_done": "Hmph. You finished. I've restored your roles. Try to be less of a problem from now on.",
@@ -21,16 +20,12 @@ PERSONALITY = {
 
 class Detention(commands.Cog):
     def __init__(self, bot: commands.Bot):
-        # ... (init function is the same)
         self.bot = bot
         self.logger = logging.getLogger(__name__)
         self.data_dir = Path("data")
         self.detention_file = self.data_dir / "detention_data.json"
         self.detention_data: Dict[str, dict] = self._load_json()
 
-    # --- NO MORE on_message LISTENER HERE ---
-
-    # --- New functions for the "Traffic Cop" to use ---
     async def is_user_detained(self, message: discord.Message) -> bool:
         """Checks if a user is in detention. Safe to call from anywhere."""
         if not message.guild: return False
@@ -62,7 +57,6 @@ class Detention(commands.Cog):
             try: await message.delete()
             except discord.NotFound: pass
 
-    # ... (all other functions like _load_json, _save_json, commands, etc. are correct and need no changes)
     def _load_json(self) -> dict:
         if not self.detention_file.exists(): return {}
         try:

@@ -7,7 +7,6 @@ from collections import defaultdict
 
 # --- Logging Setup (No changes needed here) ---
 logger = logging.getLogger('discord')
-# ... (rest of logging setup is the same and correct)
 logger.setLevel(logging.INFO)
 logging.getLogger('discord.http').setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s')
@@ -27,7 +26,7 @@ class TikaBot(commands.Bot):
         intents.reactions = True
 
         super().__init__(
-            command_prefix=["!tika ", "!Tika "], # This is correct
+            command_prefix=["!tika ", "!Tika "],
             intents=intents,
             help_command=None
         )
@@ -35,7 +34,6 @@ class TikaBot(commands.Bot):
         self.command_usage = defaultdict(lambda: defaultdict(list))
 
     async def setup_hook(self):
-        # ... (setup_hook logic is the same and correct)
         self.logger.info(f"--- Tika is waking up... ---")
         Path("data").mkdir(exist_ok=True)
         cogs_path = Path("cogs")
@@ -57,7 +55,7 @@ class TikaBot(commands.Bot):
         except Exception as e:
             self.logger.error(f"Failed to sync application commands: {e}")
             
-    # --- THE NEW "TRAFFIC COP" LISTENER ---
+    # --- THE "TRAFFIC COP" LISTENER ---
     async def on_message(self, message: discord.Message):
         """
         This single listener routes every message to the correct feature.
@@ -91,7 +89,6 @@ class TikaBot(commands.Bot):
         await self.process_commands(message)
 
     async def on_ready(self):
-        # ... (on_ready logic is the same and correct)
         activity = discord.Game(name="Doing things. Perfectly, of course.")
         await self.change_presence(status=discord.Status.online, activity=activity)
         self.logger.info(f"---")
@@ -102,7 +99,6 @@ class TikaBot(commands.Bot):
 
 
 async def main():
-    # ... (main logic is the same and correct)
     token_file = Path("token.txt")
     if not token_file.exists() or not token_file.read_text().strip():
         logger.critical("`token.txt` not found or is empty.")

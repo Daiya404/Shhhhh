@@ -9,7 +9,7 @@ import re
 import asyncio
 from typing import Dict, List, Literal
 
-# Import our custom checks and utilities
+# Import custom checks and utilities
 from .bot_admin import BotAdmin
 from utils.frustration_manager import get_frustration_level
 
@@ -136,9 +136,9 @@ class FunCommands(commands.Cog):
         if user_choice == bot_choice:
             result_text = PERSONALITY["rps_tie"].format(user_choice=user_choice)
             color = discord.Color.light_gray()
-        elif (user_choice == "rock" and bot_choice == "scissors") or \
-             (user_choice == "scissors" and bot_choice == "paper") or \
-             (user_choice == "paper" and bot_choice == "rock"):
+        elif(user_choice == "rock" and bot_choice == "scissors") or \
+            (user_choice == "scissors" and bot_choice == "paper") or \
+            (user_choice == "paper" and bot_choice == "rock"):
             result_text = PERSONALITY["rps_win"].format(user_choice=user_choice.title(), bot_choice=bot_choice)
             color = discord.Color.green()
         else:
