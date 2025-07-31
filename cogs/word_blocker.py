@@ -1,131 +1,185 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
-import asyncio
-from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
+import logging
+import re
+from typing import Dict, List
 
 # Import the custom admin check from our other cog
 from .bot_admin import BotAdmin
 
-# --- Personality Responses for this Cog ---
+# ... (The entire PERSONALITY dict and WordBlocker class are correct and do not need to be changed)
 PERSONALITY = {
-    "clear_success": "Done. I've deleted `{count}` messages. The channel looks much cleaner now.",
-    "clear_user_success": "Alright, I got rid of `{count}` of {user}'s messages. Happy now?",
-    "nuke_start_set": "Start point set. Now reply to the end message with `!tika nuke end`.",
-    "nuke_success": "Annihilation complete. I've erased `{count}` messages from existence.",
-    "nuke_no_start": "I can't end what hasn't begun. Use `!tika nuke start` by replying to a message first.",
-    "must_reply": "You have to reply to a message for that to work. Obviously.",
-    "error_forbidden": "I can't do that. I'm missing the 'Manage Messages' permission.",
-    "error_general": "Something went wrong. The messages might have been too old, or Discord is just having a moment.",
-    "error_not_found": "Couldn't find one of the messages you replied to. Starting over."
+    "word_added": "Noted. I will now watch for that word.",
+    "word_removed": "Fine, I've removed that word from the blocklist.",
+    "already_blocked": "I'm already blocking that word. Pay attention.",
+    "not_blocked": "I wasn't blocking that word to begin with.",
+    "list_empty": "There are no words on the blocklist.",
+    "channel_warning": "{user}, your message contained a blocked term and was deleted. Watch it."
 }
 
-class Clear(commands.Cog):
+class WordBlocker(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # {channel_id: start_message_id}
-        self.nuke_start_points: dict[int, int] = {}
+        self.logger = logging.getLogger(__name__)
+        self.blocklist_file = Path("data/word_blocklist.json")
+        self.blocklist_data: Dict[str, Dict[str, any]] = self._load_json()
+        self.regex_cache: Dict[str, Dict[str, any]] = {}
+        self._build_all_regex_caches()
 
-    async def cog_check(self, ctx: commands.Context) -> bool:
-        """A universal check for all prefix commands in this cog."""
-        if not ctx.guild: return False # Not in a server
+    async def check_and_handle_message(self, message: discord.Message) -> bool:
+        if not message.guild: return False
+
+        guild_id_str = str(message.guild.id)
+        user_id_str = str(message.author.id)
+        guild_cache = self.regex_cache.get(guild_id_str)
+        if not guild_cache: return False
+
+        content = message.content
+        global_regex = guild_cache.get("global")
+        user_regex = guild_cache.get("users", {}).get(user_id_str)
         
-        # Manually perform the bot admin check for prefix commands
-        cog = self.bot.get_cog('BotAdmin')
-        if not (ctx.author.guild_permissions.administrator or (cog and str(ctx.guild.id) in cog.bot_admins and ctx.author.id in cog.bot_admins[str(ctx.guild.id)])):
-            return False # Silently fail if they don't have perms
-        return True
+        if (global_regex and global_regex.search(content)) or \
+           (user_regex and user_regex.search(content)):
+            await self._handle_blocked_message(message)
+            return True
+        
+        return False
 
-    # --- Standard Slash Command ---
-    @app_commands.command(name="clear", description="Deletes a specified number of recent messages.")
-    @app_commands.describe(
-        amount="The number of messages to delete (1-100).",
-        user="Optional: Filter to only delete messages from this user."
-    )
-    @BotAdmin.is_bot_admin()
-    async def slash_clear(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], user: discord.Member = None):
-        await interaction.response.defer(ephemeral=True)
-
-        def check(message):
-            return user is None or message.author == user
-
+    def _load_json(self) -> Dict:
+        if not self.blocklist_file.exists(): return {}
         try:
-            deleted_messages = await interaction.channel.purge(limit=amount, check=check, bulk=True)
-            if user:
-                response = PERSONALITY["clear_user_success"].format(count=len(deleted_messages), user=user.mention)
-            else:
-                response = PERSONALITY["clear_success"].format(count=len(deleted_messages))
-            await interaction.followup.send(response, ephemeral=True)
+            with open(self.blocklist_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            self.logger.error(f"Error loading {self.blocklist_file}", exc_info=True)
+            return {}
+
+    async def _save_json(self):
+        try:
+            with open(self.blocklist_file, 'w', encoding='utf-8') as f:
+                json.dump(self.blocklist_data, f, indent=2)
+        except IOError:
+            self.logger.error(f"Error saving {self.blocklist_file}", exc_info=True)
+
+    def _build_all_regex_caches(self):
+        self.logger.info("Building word block regex caches...")
+        for guild_id, data in self.blocklist_data.items():
+            self._update_regex_for_guild(guild_id)
+
+    def _update_regex_for_guild(self, guild_id: str):
+        if guild_id not in self.regex_cache:
+            self.regex_cache[guild_id] = {"global": None, "users": {}}
+        guild_data = self.blocklist_data.get(guild_id, {})
+        self.regex_cache[guild_id]["global"] = self._compile_word_list(guild_data.get("global", []))
+        user_lists = guild_data.get("users", {})
+        for user_id, words in user_lists.items():
+            self.regex_cache[guild_id]["users"][user_id] = self._compile_word_list(words)
+
+    def _compile_word_list(self, words: List[str]) -> re.Pattern | None:
+        if not words: return None
+        pattern = r'\b(' + '|'.join(re.escape(word) for word in words) + r')\b'
+        return re.compile(pattern, re.IGNORECASE)
+
+    async def _handle_blocked_message(self, message: discord.Message):
+        try:
+            await message.delete()
+            warning_text = PERSONALITY["channel_warning"].format(user=message.author.mention)
+            await message.channel.send(warning_text, delete_after=10)
         except discord.Forbidden:
-            await interaction.followup.send(PERSONALITY["error_forbidden"], ephemeral=True)
-        except discord.HTTPException:
-            await interaction.followup.send(PERSONALITY["error_general"], ephemeral=True)
-
-
-    # --- Unique Prefix "Nuke" Command Group ---
-    @commands.group(invoke_without_command=True)
-    async def nuke(self, ctx: commands.Context):
-        """Base command for the two-step message nuke feature."""
-        await ctx.send("To clear a range of messages, reply to the first message with `!tika nuke start`, then reply to the last with `!tika nuke end`.", delete_after=15)
-        try:
-            await ctx.message.delete(delay=15)
-        except discord.NotFound: pass
-
-    @nuke.command(name="start")
-    async def nuke_start(self, ctx: commands.Context):
-        """Sets the starting message for the nuke."""
-        if not ctx.message.reference:
-            await ctx.send(PERSONALITY["must_reply"], delete_after=10)
-        else:
-            self.nuke_start_points[ctx.channel.id] = ctx.message.reference.message_id
-            await ctx.send(PERSONALITY["nuke_start_set"], delete_after=10)
-        await ctx.message.delete()
-
-    @nuke.command(name="end")
-    async def nuke_end(self, ctx: commands.Context):
-        """Sets the end message and executes the nuke."""
-        if not ctx.message.reference:
-            await ctx.send(PERSONALITY["must_reply"], delete_after=10)
-            return await ctx.message.delete()
-
-        if ctx.channel.id not in self.nuke_start_points:
-            await ctx.send(PERSONALITY["nuke_no_start"], delete_after=10)
-            return await ctx.message.delete()
-
-        start_id = self.nuke_start_points.pop(ctx.channel.id)
-        end_id = ctx.message.reference.message_id
-        await ctx.message.delete() # Delete the user's `!tika nuke end` command immediately
-
-        try:
-            start_msg = await ctx.channel.fetch_message(start_id)
-            end_msg = await ctx.channel.fetch_message(end_id)
+            self.logger.warning(f"Failed to delete message or send warning in {message.channel.name}.")
         except discord.NotFound:
-            return await ctx.send(PERSONALITY["error_not_found"], delete_after=10)
+            pass
 
-        # Ensure chronological order
-        if start_msg.created_at > end_msg.created_at:
-            start_msg, end_msg = end_msg, start_msg
+    blocklist_group = app_commands.Group(name="blocklist", description="Manage the server's word blocklist.")
+    global_group = app_commands.Group(name="global", parent=blocklist_group, description="Manage globally blocked words.")
+    user_group = app_commands.Group(name="user", parent=blocklist_group, description="Manage user-specific blocked words.")
 
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=13, hours=23) # A safe buffer
+    async def _modify_words(self, interaction: discord.Interaction, action: str, scope: str, words_str: str, user: discord.Member = None):
+        guild_id_str = str(interaction.guild_id)
+        user_id_str = str(user.id) if user else None
+        words = {word for word in words_str.lower().split() if word}
+        if not words:
+            await interaction.response.send_message("You have to actually provide words.", ephemeral=True)
+            return
+        self.blocklist_data.setdefault(guild_id_str, {"global": [], "users": {}})
+        if user_id_str:
+            self.blocklist_data[guild_id_str]["users"].setdefault(user_id_str, [])
+        if scope == "global":
+            word_list = self.blocklist_data[guild_id_str]["global"]
+        else:
+            word_list = self.blocklist_data[guild_id_str]["users"][user_id_str]
+        word_set = set(word_list)
+        if action == "add":
+            changed_words = words - word_set
+            if not changed_words:
+                await interaction.response.send_message(PERSONALITY["already_blocked"], ephemeral=True)
+                return
+            word_set.update(changed_words)
+            response_template = PERSONALITY["word_added"]
+        else:
+            changed_words = words & word_set
+            if not changed_words:
+                await interaction.response.send_message(PERSONALITY["not_blocked"], ephemeral=True)
+                return
+            word_set.difference_update(changed_words)
+            response_template = PERSONALITY["word_removed"]
+        if scope == "global":
+            self.blocklist_data[guild_id_str]["global"] = sorted(list(word_set))
+        else:
+            self.blocklist_data[guild_id_str]["users"][user_id_str] = sorted(list(word_set))
+        await self._save_json()
+        self._update_regex_for_guild(guild_id_str)
+        user_prefix = f"For **{user.display_name}**: " if user else ""
+        await interaction.response.send_message(f"{user_prefix}{response_template} Words: `{'`, `'.join(sorted(changed_words))}`", ephemeral=True)
 
-        # Collect all messages between the two points
-        history = [msg async for msg in ctx.channel.history(limit=None, after=start_msg, before=end_msg)]
-        to_delete = [msg for msg in history if msg.created_at > cutoff_date]
-        
-        # Add the boundary messages if they are also recent enough
-        if start_msg.created_at > cutoff_date: to_delete.append(start_msg)
-        if end_msg.created_at > cutoff_date: to_delete.append(end_msg)
-        
-        if not to_delete:
-            return await ctx.send("No recent messages found in that range to delete.", delete_after=10)
+    @global_group.command(name="add", description="Add one or more globally blocked words.")
+    @app_commands.describe(words="The word(s) to block, separated by spaces.")
+    @BotAdmin.is_bot_admin()
+    async def global_add(self, interaction: discord.Interaction, words: str):
+        await self._modify_words(interaction, "add", "global", words)
 
-        try:
-            await ctx.channel.delete_messages(to_delete)
-            await ctx.send(PERSONALITY["nuke_success"].format(count=len(to_delete)), delete_after=10)
-        except discord.Forbidden:
-            await ctx.send(PERSONALITY["error_forbidden"], delete_after=10)
-        except discord.HTTPException:
-            await ctx.send(PERSONALITY["error_general"], delete_after=10)
+    @global_group.command(name="remove", description="Remove one or more globally blocked words.")
+    @app_commands.describe(words="The word(s) to unblock, separated by spaces.")
+    @BotAdmin.is_bot_admin()
+    async def global_remove(self, interaction: discord.Interaction, words: str):
+        await self._modify_words(interaction, "remove", "global", words)
+
+    @global_group.command(name="list", description="List all globally blocked words.")
+    @BotAdmin.is_bot_admin()
+    async def global_list(self, interaction: discord.Interaction):
+        words = self.blocklist_data.get(str(interaction.guild.id), {}).get("global", [])
+        if not words:
+            await interaction.response.send_message(PERSONALITY["list_empty"], ephemeral=True)
+            return
+        embed = discord.Embed(title="Globally Blocked Words", description=", ".join(f"`{w}`" for w in words), color=discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @user_group.command(name="add", description="Add user-specific blocked words.")
+    @app_commands.describe(user="The user to block words for.", words="The word(s) to block.")
+    @BotAdmin.is_bot_admin()
+    async def user_add(self, interaction: discord.Interaction, user: discord.Member, words: str):
+        await self._modify_words(interaction, "add", "user", words, user)
+
+    @user_group.command(name="remove", description="Remove user-specific blocked words.")
+    @app_commands.describe(user="The user to unblock words for.", words="The word(s) to unblock.")
+    @BotAdmin.is_bot_admin()
+    async def user_remove(self, interaction: discord.Interaction, user: discord.Member, words: str):
+        await self._modify_words(interaction, "remove", "user", words, user)
+    
+    @user_group.command(name="list", description="List all blocked words for a specific user.")
+    @app_commands.describe(user="The user whose list you want to see.")
+    @BotAdmin.is_bot_admin()
+    async def user_list(self, interaction: discord.Interaction, user: discord.Member):
+        words = self.blocklist_data.get(str(interaction.guild.id), {}).get("users", {}).get(str(user.id), [])
+        if not words:
+            await interaction.response.send_message(f"No specific words are blocked for **{user.display_name}**.", ephemeral=True)
+            return
+        embed = discord.Embed(title=f"Blocked Words for {user.display_name}", description=", ".join(f"`{w}`" for w in words), color=discord.Color.red())
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
-    await bot.add_cog(Clear(bot))
+    await bot.add_cog(WordBlocker(bot))

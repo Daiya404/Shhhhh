@@ -77,7 +77,12 @@ class TikaBot(commands.Bot):
         if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
             return # Stop processing, message was deleted.
 
-        # Priority 3: Prefix Commands. If nothing else caught the message, check for commands.
+        # Priority 3: Link Fixer. Check for twitter/x links.
+        link_fixer_cog = self.get_cog("LinkFixer")
+        if link_fixer_cog and await link_fixer_cog.check_and_fix_link(message):
+            return # Stop processing, link was fixed.
+
+        # Priority 4: Prefix Commands
         await self.process_commands(message)
 
     async def on_ready(self):
