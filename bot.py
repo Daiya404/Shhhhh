@@ -5,17 +5,16 @@ from pathlib import Path
 import asyncio
 from collections import defaultdict
 
-# --- Logging Setup ---
+# --- Logging Setup (No changes needed here) ---
 logger = logging.getLogger('discord')
+# ... (rest of logging setup is the same and correct)
 logger.setLevel(logging.INFO)
 logging.getLogger('discord.http').setLevel(logging.INFO)
-
 formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s')
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 file_handler = logging.FileHandler(filename='bot.log', encoding='utf-8', mode='w')
 file_handler.setFormatter(formatter)
-
 logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
 
@@ -28,49 +27,63 @@ class TikaBot(commands.Bot):
         intents.reactions = True
 
         super().__init__(
-            command_prefix=commands.when_mentioned_or('!'), # Fallback prefix
+            command_prefix=["!tika ", "!Tika "], # This is correct
             intents=intents,
             help_command=None
         )
         self.logger = logger
-        # This is the central data store for the Frustration Engine.
-        # It will hold data like: {user_id: {command_name: [timestamp1, timestamp2]}}
         self.command_usage = defaultdict(lambda: defaultdict(list))
 
     async def setup_hook(self):
-        """This is called when the bot first starts up."""
+        # ... (setup_hook logic is the same and correct)
         self.logger.info(f"--- Tika is waking up... ---")
-        
-        # Ensure essential directories exist
         Path("data").mkdir(exist_ok=True)
-        Path("cogs").mkdir(exist_ok=True)
+        cogs_path = Path("cogs")
+        cogs_path.mkdir(exist_ok=True)
         Path("utils").mkdir(exist_ok=True)
-
-        # Dynamically load all cogs
         loaded_cogs = 0
-        for cog_file in Path("cogs").glob("*.py"):
+        for cog_file in cogs_path.glob("*.py"):
             if cog_file.name.startswith("_"): continue
-            
             try:
                 await self.load_extension(f"cogs.{cog_file.stem}")
                 self.logger.info(f"✅ Loaded Cog: {cog_file.name}")
                 loaded_cogs += 1
             except Exception as e:
                 self.logger.error(f"❌ Failed to load Cog: {cog_file.name}", exc_info=e)
-        
         self.logger.info(f"--- Loaded {loaded_cogs} cog(s) successfully. ---")
-
-        # Sync application commands
         try:
             synced = await self.tree.sync()
             self.logger.info(f"🔄 Synced {len(synced)} application command(s).")
         except Exception as e:
             self.logger.error(f"Failed to sync application commands: {e}")
+            
+    # --- THE NEW "TRAFFIC COP" LISTENER ---
+    async def on_message(self, message: discord.Message):
+        """
+        This single listener routes every message to the correct feature.
+        This prevents cogs from blocking each other.
+        """
+        if message.author.bot:
+            return
+
+        # Priority 1: Detention. A user in detention can't do anything else.
+        detention_cog = self.get_cog("Detention")
+        if detention_cog and await detention_cog.is_user_detained(message):
+            await detention_cog.handle_detention_message(message)
+            return # Stop processing, they are in detention.
+
+        # Priority 2: Word Blocker. Check for bad words.
+        word_blocker_cog = self.get_cog("WordBlocker")
+        if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
+            return # Stop processing, message was deleted.
+
+        # Priority 3: Prefix Commands. If nothing else caught the message, check for commands.
+        await self.process_commands(message)
 
     async def on_ready(self):
+        # ... (on_ready logic is the same and correct)
         activity = discord.Game(name="Doing things. Perfectly, of course.")
         await self.change_presence(status=discord.Status.online, activity=activity)
-        
         self.logger.info(f"---")
         self.logger.info(f"Logged in as: {self.user} (ID: {self.user.id})")
         self.logger.info(f"Serving {len(self.guilds)} server(s).")
@@ -79,18 +92,17 @@ class TikaBot(commands.Bot):
 
 
 async def main():
+    # ... (main logic is the same and correct)
     token_file = Path("token.txt")
     if not token_file.exists() or not token_file.read_text().strip():
-        logger.critical("`token.txt` not found or is empty. Please create it and paste your bot token inside.")
+        logger.critical("`token.txt` not found or is empty.")
         return
-
     token = token_file.read_text().strip()
     bot = TikaBot()
-    
     try:
         await bot.start(token)
     except discord.LoginFailure:
-        logger.critical("Invalid token in `token.txt`. Check that you copied it correctly.")
+        logger.critical("Invalid token in `token.txt`.")
     except Exception as e:
         logger.critical(f"An unexpected error occurred during startup:", exc_info=e)
 
