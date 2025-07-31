@@ -13,7 +13,8 @@ PERSONALITY = {
     "already_admin": "That person is already on the list. Pay attention.",
     "not_admin": "I wasn't listening to that person anyway. Can't remove someone who isn't there.",
     "no_admins": "No extra bot admins have been added. It's just the server administrators.",
-    "no_perm": "That command is for server administrators only. Don't waste my time."
+    "no_perm_check": "You don't have the required permissions for that command.",
+    "no_perm_group": "That command is for server administrators only. Don't waste my time."
 }
 
 class BotAdmin(commands.Cog):
@@ -29,7 +30,7 @@ class BotAdmin(commands.Cog):
             with open(self.admins_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError) as e:
-            self.logger.error(f"Error loading {self.admins_file}: {e}")
+            self.logger.error(f"Error loading {self.admins_file}: {e}", exc_info=True)
             return {}
 
     async def _save_json(self):
@@ -37,14 +38,17 @@ class BotAdmin(commands.Cog):
             with open(self.admins_file, 'w', encoding='utf-8') as f:
                 json.dump(self.bot_admins, f, indent=2)
         except IOError as e:
-            self.logger.error(f"Error saving {self.admins_file}: {e}")
+            self.logger.error(f"Error saving {self.admins_file}: {e}", exc_info=True)
 
     # This is the custom check that other commands will use.
     def is_bot_admin():
+        """A custom check to verify if a user has bot admin privileges."""
         async def predicate(interaction: discord.Interaction) -> bool:
+            # Rule 1: Server Admins are always bot admins.
             if interaction.user.guild_permissions.administrator:
                 return True
             
+            # Rule 2: Check the manually added list.
             cog = interaction.client.get_cog('BotAdmin')
             if not cog: return False
             
@@ -52,12 +56,19 @@ class BotAdmin(commands.Cog):
             if guild_id in cog.bot_admins and interaction.user.id in cog.bot_admins[guild_id]:
                 return True
             
-            await interaction.response.send_message("You don't have the required permissions for that command.", ephemeral=True)
+            # If neither rule is met, deny permission.
+            await interaction.response.send_message(PERSONALITY["no_perm_check"], ephemeral=True)
             return False
         return app_commands.check(predicate)
 
-    # Group for /botadmin subcommands. Only server admins can see/use this.
-    admin_group = app_commands.Group(name="botadmin", description="Manage who can use Tika's admin commands.", default_permissions=discord.Permissions(administrator=True))
+    # --- Command Group Definition ---
+    # This single line creates the `/botadmin` "folder" for our commands.
+    # It is restricted to server administrators by default.
+    admin_group = app_commands.Group(
+        name="botadmin",
+        description="Manage who can use Tika's admin commands.",
+        default_permissions=discord.Permissions(administrator=True)
+    )
 
     @admin_group.command(name="add", description="Allow a user to use admin commands.")
     @app_commands.describe(user="The user to grant permissions to.")
@@ -99,6 +110,7 @@ class BotAdmin(commands.Cog):
         admin_mentions = [f"<@{uid}>" for uid in self.bot_admins[guild_id]]
         embed.description = "\n".join(admin_mentions)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
 
 async def setup(bot):
     await bot.add_cog(BotAdmin(bot))
