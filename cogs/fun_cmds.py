@@ -7,7 +7,7 @@ import logging
 import random
 import re
 import asyncio
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 
 # Import our custom checks and utilities
 from .bot_admin import BotAdmin
@@ -21,15 +21,12 @@ PERSONALITY = {
         "Are we going to do this all day? It's **{result}**.",
         "This is the last time. **{result}**. Now go do something productive."
     ],
-    "roll_success": "You rolled a **{total}**.",
     "rps_win": "You chose **{user_choice}** and I chose **{bot_choice}**. Hmph. You win this time.",
     "rps_lose": "You chose **{user_choice}** and I chose **{bot_choice}**. Predictable. I win.",
     "rps_tie": "We both chose **{user_choice}**. How boring.",
     "embed_added": "Fine, I've added that image to the `{command}` list. I hope it's a good one.",
     "embed_invalid_url": "That doesn't look like a real URL. Try again.",
-    "error_roll_format": "That's not how you roll dice. Use the format `1d6` or `2d20`.",
-    "gif_disabled": "Okay, I'll stop showing you GIFs for the `/roll` command. Just the facts from now on.",
-    "gif_enabled": "You want the GIFs back for `/roll`? Fine. Enjoy the show."
+    "error_roll_format": "That's not how you roll dice. Use the format `1d6` or `2d20`."
 }
 
 
@@ -40,32 +37,28 @@ class FunCommands(commands.Cog):
         self.embeds_file = Path("data/fun_embeds.json")
         self.settings_file = Path("data/fun_settings.json")
         
-        # Data for custom embeds
         self.embed_data: Dict[str, Dict[str, List[str]]] = self._load_json(self.embeds_file)
-        # Data for user settings (e.g., GIF toggles)
+        # Data: {guild_id: {"roll_gifs_disabled": [user_id, ...]}}
         self.settings_data: Dict[str, Dict] = self._load_json(self.settings_file)
         
         self.default_embeds = {
-            "coinflip": ["https://tenor.com/view/fred-flintstone-barney-rubble-coin-flipping-flip-a-coin-the-flintstones-gif-23183277"],
-            "roll": ["https://tenor.com/view/dice-gif-10336307322455184849"],
-            "rps": ["https://tenor.com/view/cant-decide-never-decide-decisions-will-arnett-netflix-live-gif-8166375"]
+            "coinflip": ["https://media1.tenor.com/m/gT2UI5h7-4sAAAAC/coin-flip-heads.gif"],
+            "roll": ["https://media1.tenor.com/m/Z2WSYMOa2oYAAAAC/dice-roll.gif"],
+            "rps": ["https://media1.tenor.com/m/y6gH0Q5i3iMAAAAC/rock-paper-scissors-anime.gif"]
         }
         self.dice_pattern = re.compile(r'(\d+)d(\d+)', re.IGNORECASE)
 
-    # --- Data Handling ---
     def _load_json(self, file_path: Path) -> Dict:
         if not file_path.exists(): return {}
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+            with open(file_path, 'r', encoding='utf-8') as f: return json.load(f)
         except (json.JSONDecodeError, IOError):
             self.logger.error(f"Error loading {file_path}", exc_info=True)
             return {}
 
     async def _save_json(self, data: dict, file_path: Path):
         try:
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=2)
+            with open(file_path, 'w', encoding='utf-8') as f: json.dump(data, f, indent=2)
         except IOError:
             self.logger.error(f"Error saving {file_path}", exc_info=True)
 
@@ -91,8 +84,11 @@ class FunCommands(commands.Cog):
         await interaction.edit_original_response(embed=result_embed)
 
     @app_commands.command(name="roll", description="Roll one or more dice (e.g., 1d6, 2d20).")
-    @app_commands.describe(dice="The dice to roll in XdY format.")
-    async def roll(self, interaction: discord.Interaction, dice: str):
+    @app_commands.describe(
+        dice="The dice to roll in XdY format.",
+        show_gif="Whether to show a GIF. Defaults to your last choice (or ON)."
+    )
+    async def roll(self, interaction: discord.Interaction, dice: str, show_gif: Optional[bool] = None):
         match = self.dice_pattern.match(dice.lower().strip())
         if not match:
             return await interaction.response.send_message(PERSONALITY["error_roll_format"], ephemeral=True)
@@ -104,12 +100,24 @@ class FunCommands(commands.Cog):
         rolls = [random.randint(1, num_sides) for _ in range(num_dice)]
         total = sum(rolls)
         
-        # --- NEW: Check user's preference for GIFs ---
-        guild_id = str(interaction.guild_id)
-        user_id = interaction.user.id
-        is_gif_disabled = user_id in self.settings_data.get(guild_id, {}).get("roll_gifs_disabled", [])
+        guild_id, user_id = str(interaction.guild_id), interaction.user.id
+        disabled_list = self.settings_data.setdefault(guild_id, {}).setdefault("roll_gifs_disabled", [])
 
-        if not is_gif_disabled:
+        # --- NEW LOGIC: Determine display style and save preference ---
+        display_gif = True
+        if show_gif is not None: # User explicitly chose
+            display_gif = show_gif
+            # Save the user's new preference
+            if display_gif and user_id in disabled_list:
+                disabled_list.remove(user_id)
+                await self._save_json(self.settings_data, self.settings_file)
+            elif not display_gif and user_id not in disabled_list:
+                disabled_list.append(user_id)
+                await self._save_json(self.settings_data, self.settings_file)
+        else: # User did not specify, use their saved preference
+            display_gif = user_id not in disabled_list
+        
+        if display_gif:
             # The original behavior with the GIF
             embed_url = self._get_random_embed_url(interaction.guild_id, "roll")
             embed = discord.Embed(
@@ -120,13 +128,15 @@ class FunCommands(commands.Cog):
             embed.set_image(url=embed_url)
         else:
             # The new, compact, text-based embed
-            embed = discord.Embed(
-                title=f"Dice Roll: {dice}",
-                color=discord.Color.blue()
+            rolls_str = ' '.join(map(str, rolls))
+            description = (
+                f"```┌─────────┬───────┐\n"
+                f"│ {dice:<7} │ rolls │ sum   │\n"
+                f"├─────────┼───────┤\n"
+                f"│ {rolls_str:<7} │ {total:<5} │\n"
+                f"└─────────┴───────┘```"
             )
-            embed.add_field(name="Total", value=f"**` {total} `**", inline=True)
-            if num_dice > 1:
-                embed.add_field(name="Rolls", value=f"` {', '.join(map(str, rolls))} `", inline=True)
+            embed = discord.Embed(description=description, color=discord.Color.blue())
 
         await interaction.response.send_message(embed=embed)
 
@@ -150,37 +160,14 @@ class FunCommands(commands.Cog):
         embed.set_image(url=embed_url)
         await interaction.response.send_message(embed=embed)
 
-    # --- Settings and Admin Commands ---
-    funsettings_group = app_commands.Group(name="funsettings", description="Manage personal settings for fun commands.")
-
-    @funsettings_group.command(name="toggle-gifs", description="Turn GIFs on or off for yourself for the /roll command.")
-    async def toggle_gifs(self, interaction: discord.Interaction):
-        guild_id = str(interaction.guild_id)
-        user_id = interaction.user.id
-        
-        # Get the list of users with GIFs disabled, or create it if it doesn't exist
-        disabled_list = self.settings_data.setdefault(guild_id, {}).setdefault("roll_gifs_disabled", [])
-        
-        if user_id in disabled_list:
-            disabled_list.remove(user_id)
-            response = PERSONALITY["gif_enabled"]
-        else:
-            disabled_list.append(user_id)
-            response = PERSONALITY["gif_disabled"]
-            
-        await self._save_json(self.settings_data, self.settings_file)
-        await interaction.response.send_message(response, ephemeral=True)
-
     @app_commands.command(name="funembeds", description="Add a new image/GIF for a fun command.")
-    # ... (This command is unchanged)
     @app_commands.describe(command="The command to add the image to.", url="The direct URL of the image or GIF.")
     @app_commands.choices(command=[app_commands.Choice(name="Coinflip", value="coinflip"), app_commands.Choice(name="Roll", value="roll"), app_commands.Choice(name="RPS", value="rps"),])
     @BotAdmin.is_bot_admin()
     async def funembeds(self, interaction: discord.Interaction, command: app_commands.Choice[str], url: str):
         if not (url.startswith("http://") or url.startswith("https://")):
             return await interaction.response.send_message(PERSONALITY["embed_invalid_url"], ephemeral=True)
-        guild_id = str(interaction.guild_id)
-        command_name = command.value
+        guild_id, command_name = str(interaction.guild_id), command.value
         self.embed_data.setdefault(guild_id, {})
         self.embed_data[guild_id].setdefault(command_name, [])
         self.embed_data[guild_id][command_name].append(url)
