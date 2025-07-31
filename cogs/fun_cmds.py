@@ -38,7 +38,6 @@ class FunCommands(commands.Cog):
         self.settings_file = Path("data/fun_settings.json")
         
         self.embed_data: Dict[str, Dict[str, List[str]]] = self._load_json(self.embeds_file)
-        # Data: {guild_id: {"roll_gifs_disabled": [user_id, ...]}}
         self.settings_data: Dict[str, Dict] = self._load_json(self.settings_file)
         
         self.default_embeds = {
@@ -66,7 +65,6 @@ class FunCommands(commands.Cog):
         urls = self.embed_data.get(str(guild_id), {}).get(command, [])
         return random.choice(urls) if urls else random.choice(self.default_embeds[command])
 
-    # --- Fun Commands ---
     @app_commands.command(name="coinflip", description="Flip a coin.")
     async def coinflip(self, interaction: discord.Interaction):
         flipping_url = self._get_random_embed_url(interaction.guild_id, "coinflip")
@@ -86,7 +84,7 @@ class FunCommands(commands.Cog):
     @app_commands.command(name="roll", description="Roll one or more dice (e.g., 1d6, 2d20).")
     @app_commands.describe(
         dice="The dice to roll in XdY format.",
-        show_gif="Whether to show a GIF. Defaults to your last choice (or ON)."
+        show_gif="Whether to show a GIF. Remembers your last choice."
     )
     async def roll(self, interaction: discord.Interaction, dice: str, show_gif: Optional[bool] = None):
         match = self.dice_pattern.match(dice.lower().strip())
@@ -103,22 +101,19 @@ class FunCommands(commands.Cog):
         guild_id, user_id = str(interaction.guild_id), interaction.user.id
         disabled_list = self.settings_data.setdefault(guild_id, {}).setdefault("roll_gifs_disabled", [])
 
-        # --- NEW LOGIC: Determine display style and save preference ---
         display_gif = True
-        if show_gif is not None: # User explicitly chose
+        if show_gif is not None:
             display_gif = show_gif
-            # Save the user's new preference
             if display_gif and user_id in disabled_list:
                 disabled_list.remove(user_id)
                 await self._save_json(self.settings_data, self.settings_file)
             elif not display_gif and user_id not in disabled_list:
                 disabled_list.append(user_id)
                 await self._save_json(self.settings_data, self.settings_file)
-        else: # User did not specify, use their saved preference
+        else:
             display_gif = user_id not in disabled_list
         
         if display_gif:
-            # The original behavior with the GIF
             embed_url = self._get_random_embed_url(interaction.guild_id, "roll")
             embed = discord.Embed(
                 title=f"🎲 Rolled {dice}: Result is {total}",
@@ -127,16 +122,14 @@ class FunCommands(commands.Cog):
             )
             embed.set_image(url=embed_url)
         else:
-            # The new, compact, text-based embed
-            rolls_str = ' '.join(map(str, rolls))
-            description = (
-                f"```┌─────────┬───────┐\n"
-                f"│ {dice:<7} │ rolls │ sum   │\n"
-                f"├─────────┼───────┤\n"
-                f"│ {rolls_str:<7} │ {total:<5} │\n"
-                f"└─────────┴───────┘```"
+            # --- REVERTED: The simple, non-stylistic text embed ---
+            embed = discord.Embed(
+                title=f"Dice Roll: {dice}",
+                color=discord.Color.blue()
             )
-            embed = discord.Embed(description=description, color=discord.Color.blue())
+            embed.add_field(name="Total", value=f"**` {total} `**", inline=True)
+            if num_dice > 1:
+                embed.add_field(name="Rolls", value=f"` {', '.join(map(str, rolls))} `", inline=True)
 
         await interaction.response.send_message(embed=embed)
 
@@ -144,20 +137,15 @@ class FunCommands(commands.Cog):
     @app_commands.describe(choice="Your choice.")
     @app_commands.choices(choice=[app_commands.Choice(name="Rock", value="rock"), app_commands.Choice(name="Paper", value="paper"), app_commands.Choice(name="Scissors", value="scissors"),])
     async def rps(self, interaction: discord.Interaction, choice: app_commands.Choice[str]):
-        user_choice = choice.value
-        bot_choice = random.choice(["rock", "paper", "scissors"])
+        user_choice, bot_choice = choice.value, random.choice(["rock", "paper", "scissors"])
         if user_choice == bot_choice:
-            result_text = PERSONALITY["rps_tie"].format(user_choice=user_choice)
-            color = discord.Color.light_gray()
-        elif (user_choice == "rock" and bot_choice == "scissors") or (user_choice == "scissors" and bot_choice == "paper") or (user_choice == "paper" and bot_choice == "rock"):
-            result_text = PERSONALITY["rps_win"].format(user_choice=user_choice.title(), bot_choice=bot_choice)
-            color = discord.Color.green()
+            result_text, color = PERSONALITY["rps_tie"].format(user_choice=user_choice), discord.Color.light_gray()
+        elif (user_choice, bot_choice) in [("rock", "scissors"), ("scissors", "paper"), ("paper", "rock")]:
+            result_text, color = PERSONALITY["rps_win"].format(user_choice=user_choice.title(), bot_choice=bot_choice), discord.Color.green()
         else:
-            result_text = PERSONALITY["rps_lose"].format(user_choice=user_choice.title(), bot_choice=bot_choice)
-            color = discord.Color.red()
-        embed_url = self._get_random_embed_url(interaction.guild_id, "rps")
+            result_text, color = PERSONALITY["rps_lose"].format(user_choice=user_choice.title(), bot_choice=bot_choice), discord.Color.red()
         embed = discord.Embed(description=result_text, color=color)
-        embed.set_image(url=embed_url)
+        embed.set_image(url=self._get_random_embed_url(interaction.guild_id, "rps"))
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="funembeds", description="Add a new image/GIF for a fun command.")
