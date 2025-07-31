@@ -82,7 +82,12 @@ class TikaBot(commands.Bot):
         if link_fixer_cog and await link_fixer_cog.check_and_fix_link(message):
             return # Stop processing, link was fixed.
 
-        # Priority 4: Prefix Commands
+        # Priority 4: Auto Reply
+        auto_reply_cog = self.get_cog("AutoReply")
+        if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
+            return # Stop processing, auto reply was sent.
+        
+        # Priority 5: Prefix Commands
         await self.process_commands(message)
 
     async def on_ready(self):
