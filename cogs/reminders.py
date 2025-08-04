@@ -207,6 +207,7 @@ class Reminders(commands.Cog):
     
     @admin_group.command(name="delete", description="Forcibly delete any user's reminder by its ID.")
     @app_commands.describe(reminder_id="The full ID of the reminder to delete.")
+    # Is Admin? Check
     @BotAdmin.is_bot_admin()
     async def admin_delete(self, interaction: discord.Interaction, reminder_id: str):
         item_to_delete = next((r for r in self.reminders if r["id"] == reminder_id and r.get("type") == "reminder"), None)
