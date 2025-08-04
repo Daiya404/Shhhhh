@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from .bot_admin import BotAdmin
 
-# --- Personality Responses for this Cog ---
+# Personality Responses for this Cog
 PERSONALITY = {
     "clear_success": "Done. I've deleted `{count}` messages. The channel looks much cleaner now.",
     "clear_user_success": "Alright, I got rid of `{count}` of {user}'s messages. Happy now?",
@@ -35,12 +35,13 @@ class Clear(commands.Cog):
         )
         return is_admin
 
-    # --- Standard Slash Commands ---
+    # Commands
     @app_commands.command(name="clear", description="Deletes a specified number of recent messages.")
     @app_commands.describe(
         amount="The number of messages to delete (1-100).",
         user="Optional: Filter to only delete messages from this user."
     )
+    # Is Admin? check
     @BotAdmin.is_bot_admin()
     async def slash_clear(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], user: discord.Member = None):
         await interaction.response.defer(ephemeral=True)
@@ -53,10 +54,10 @@ class Clear(commands.Cog):
         except discord.Forbidden: await interaction.followup.send(PERSONALITY["error_forbidden"], ephemeral=True)
         except discord.HTTPException: await interaction.followup.send(PERSONALITY["error_general"], ephemeral=True)
 
-    # --- Prefix Commands ---
+    # Eat Commands
     @commands.command()
     async def eat(self, ctx: commands.Context):
-        """Sets the starting message for the range deletion."""
+        # Sets the starting message for the range deletion
         if not ctx.message.reference:
             await ctx.send(PERSONALITY["must_reply"], delete_after=10)
         else:
@@ -66,7 +67,7 @@ class Clear(commands.Cog):
 
     @commands.command()
     async def end(self, ctx: commands.Context):
-        """Sets the end message and executes the range deletion."""
+        # Sets the end message and executes the range deletion
         if not ctx.message.reference:
             await ctx.send(PERSONALITY["must_reply"], delete_after=10)
             return await ctx.message.delete()
@@ -111,3 +112,4 @@ class Clear(commands.Cog):
 
 async def setup(bot):
     await bot.add_cog(Clear(bot))
+    # why is this always used for emote spam or cus of Andy and Ori :pensivewobble:

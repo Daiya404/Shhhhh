@@ -8,9 +8,9 @@ import aiohttp
 import xml.etree.ElementTree as ET
 from typing import Dict, List
 
-from .bot_admin import BotAdmin
+from cogs.bot_admin import BotAdmin
 
-# --- Personality Responses for this Cog ---
+# Personality Responses for this Cog
 PERSONALITY = {
     "feed_added": "Okay, I'll keep an eye on that feed for `{tag}` and post any updates in {channel}.",
     "feed_removed": "Removed the `{tag}` feed. It was probably boring anyway.",
@@ -49,7 +49,7 @@ class TwitterFeed(commands.Cog):
 
     @tasks.loop(minutes=5)
     async def check_feeds(self):
-        """Checks all configured RSS feeds for new posts."""
+        # Checks all configured RSS feeds for new posts
         await self.bot.wait_until_ready()
         self.logger.info("Checking Twitter RSS feeds...")
         
@@ -86,7 +86,7 @@ class TwitterFeed(commands.Cog):
                 except Exception as e:
                     self.logger.error(f"Error processing feed '{feed_config['tag']}': {e}", exc_info=True)
 
-    # --- Command Group ---
+    # Command Group
     feed_group = app_commands.Group(name="twitter-feed", description="Manage Twitter feed announcements.")
 
     @feed_group.command(name="add", description="Add a new Twitter account to follow via its RSS feed.")
@@ -146,6 +146,7 @@ class TwitterFeed(commands.Cog):
         ][:25]
 
     @feed_group.command(name="list", description="List all configured Twitter feeds.")
+    # Is Admin? check
     @BotAdmin.is_bot_admin()
     async def list_feeds(self, interaction: discord.Interaction):
         guild_id = str(interaction.guild_id)

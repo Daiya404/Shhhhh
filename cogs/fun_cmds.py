@@ -8,12 +8,10 @@ import random
 import re
 import asyncio
 from typing import Dict, List, Literal, Optional
-
-# Import our custom checks and utilities
 from .bot_admin import BotAdmin
 from utils.frustration_manager import get_frustration_level
 
-# --- Self-Contained Personality for this Cog ---
+# Personality for this Cog
 PERSONALITY = {
     "coinflip_responses": [
         "Flipping a coin for you. It's **{result}**.",
@@ -122,7 +120,7 @@ class FunCommands(commands.Cog):
             )
             embed.set_image(url=embed_url)
         else:
-            # --- REVERTED: The simple, non-stylistic text embed ---
+            # text embed
             embed = discord.Embed(
                 title=f"Dice Roll: {dice}",
                 color=discord.Color.blue()

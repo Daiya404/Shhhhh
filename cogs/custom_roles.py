@@ -8,12 +8,10 @@ import re
 import asyncio
 import time
 from typing import Dict, List, Optional
-
-# Import custom checks and utilities
 from .bot_admin import BotAdmin
 from utils.frustration_manager import get_frustration_level
 
-# --- Self-Contained Personality for this Cog ---
+# Personality for this Cog
 PERSONALITY = {
     "set_responses": [
         "There, your role is set. Don't mess it up.",
@@ -42,7 +40,7 @@ class CustomRoles(commands.Cog):
         self.settings_data: Dict[str, Dict] = self._load_json(self.settings_file)
         self.user_roles_data: Dict[str, Dict] = self._load_json(self.user_roles_file)
 
-        # Optimizations
+        # Optimizations, This shit is confusing
         self._save_lock = asyncio.Lock()
         self._position_lock = asyncio.Lock()
         self._guild_cache: Dict[str, Dict] = {}
@@ -68,10 +66,10 @@ class CustomRoles(commands.Cog):
             except Exception as e:
                 self.logger.error(f"Error saving {file_path}", exc_info=True)
 
-    # --- User Command Group ---
+    # User Commands
     role_group = app_commands.Group(name="role", description="Commands for managing your personal custom role.")
 
-    @role_group.command(name="set", description="Create or update your custom role.")
+    @role_group.command(name="set", description="Create or update your custom role.") # no one uses this, bruh
     @app_commands.describe(name="The name for your role.", color="The color in hex format (e.g., #FF5733).")
     async def set_role(self, interaction: discord.Interaction, name: str, color: str):
         await interaction.response.defer(ephemeral=True)
@@ -146,7 +144,7 @@ class CustomRoles(commands.Cog):
             
         await interaction.response.send_message(PERSONALITY["role_deleted"], ephemeral=True)
 
-    # --- Admin Command Group ---
+    # Admin Commands
     admin_group = app_commands.Group(name="role-admin", description="Admin commands for the custom role system.")
 
     @admin_group.command(name="set-target", description="Set the role(s) that custom roles will be placed above.")
@@ -166,6 +164,7 @@ class CustomRoles(commands.Cog):
 
         await interaction.response.send_message(PERSONALITY["target_set"], ephemeral=True)
 
+    # orfan roles delete, Nuked
     @admin_group.command(name="cleanup", description="Clean up data for roles that no longer exist.")
     @BotAdmin.is_bot_admin()
     async def cleanup(self, interaction: discord.Interaction):
@@ -182,9 +181,9 @@ class CustomRoles(commands.Cog):
         await self._save_json(self.user_roles_data, self.user_roles_file)
         await interaction.followup.send(PERSONALITY["admin_cleanup"].format(count=len(to_remove)), ephemeral=True)
 
-    # --- Core Logic & Helpers ---
+    # Core Logic & Helpers
     async def _get_user_role(self, user: discord.Member) -> Optional[discord.Role]:
-        """A helper to safely get a user's custom role object."""
+        # A helper to safely get a user's custom role
         role_data = self.user_roles_data.get(str(user.guild.id), {}).get(str(user.id))
         return user.guild.get_role(role_data["role_id"]) if role_data else None
 
@@ -221,9 +220,6 @@ class CustomRoles(commands.Cog):
         return cache_data
 
     async def _position_role(self, role: discord.Role, guild: discord.Guild):
-        """
-        CORRECTED: Uses the more reliable guild.edit_role_positions method.
-        """
         async with self._position_lock:
             try:
                 guild_data = await self._get_cached_guild_data(guild)

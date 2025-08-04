@@ -5,7 +5,7 @@ from pathlib import Path
 import asyncio
 from collections import defaultdict
 
-# --- Logging Setup (No changes needed here) ---
+# logging setup
 logger = logging.getLogger('discord')
 logger.setLevel(logging.INFO)
 logging.getLogger('discord.http').setLevel(logging.INFO)
@@ -18,6 +18,7 @@ logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
 
 
+# main bot starter
 class TikaBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -55,35 +56,33 @@ class TikaBot(commands.Bot):
         except Exception as e:
             self.logger.error(f"Failed to sync application commands: {e}")
             
-    # --- THE "TRAFFIC COP" LISTENER ---
+    # The "Traffic Cop" system that Claude recommended
+    # This single listener routes every message to the correct feature.
+    # This prevents cogs from blocking each other.
     async def on_message(self, message: discord.Message):
-        """
-        This single listener routes every message to the correct feature.
-        This prevents cogs from blocking each other.
-        """
         if message.author.bot:
             return
 
-        # Priority 1: Detention. A user in detention can't do anything else.
+        # Priority 1: Detention.
         detention_cog = self.get_cog("Detention")
         if detention_cog and await detention_cog.is_user_detained(message):
             await detention_cog.handle_detention_message(message)
-            return # Stop processing, they are in detention.
+            return
 
-        # Priority 2: Word Blocker. Check for bad words.
+        # Priority 2: Word Blocker.
         word_blocker_cog = self.get_cog("WordBlocker")
         if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
-            return # Stop processing, message was deleted.
+            return
 
         # Priority 3: Link Fixer. Check for twitter/x links.
         link_fixer_cog = self.get_cog("LinkFixer")
         if link_fixer_cog and await link_fixer_cog.check_and_fix_link(message):
-            return # Stop processing, link was fixed.
+            return
 
         # Priority 4: Auto Reply
         auto_reply_cog = self.get_cog("AutoReply")
         if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
-            return # Stop processing, auto reply was sent.
+            return
         
         # Priority 5: Prefix Commands
         await self.process_commands(message)
@@ -99,7 +98,7 @@ class TikaBot(commands.Bot):
 
 
 async def main():
-    token_file = Path("token.txt")
+    token_file = Path("token.txt") # maybe switch to .env later
     if not token_file.exists() or not token_file.read_text().strip():
         logger.critical("`token.txt` not found or is empty.")
         return

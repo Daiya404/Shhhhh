@@ -9,6 +9,7 @@ from typing import Dict
 
 from .bot_admin import BotAdmin
 
+# Personality for this Cog
 PERSONALITY = {
     "channel_set": "Understood. From now on, all detention sentences will be served in {channel}.",
     "no_channel_set": "An admin needs to set a detention channel first using `/detention set-channel`.",
@@ -27,7 +28,6 @@ PERSONALITY = {
     "channel_perms_missing": "I can't work in that channel. I need permissions to Send Messages, Manage Messages (for pinning), and Add Reactions."
 }
 
-
 class Detention(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -41,7 +41,7 @@ class Detention(commands.Cog):
     async def on_ready(self):
         pass
 
-    # --- Public methods for bot.py to call ---
+    # Public methods for main.py to call
     async def is_user_detained(self, message: discord.Message) -> bool:
         if not message.guild: return False
         return str(message.guild.id) in self.detention_data and str(message.author.id) in self.detention_data[str(message.guild.id)]
@@ -79,7 +79,7 @@ class Detention(commands.Cog):
             try: await message.delete()
             except discord.NotFound: pass
 
-    # --- Data Handling ---
+    # Data Handling
     def _load_json(self, file_path: Path) -> Dict:
         if not file_path.exists(): return {}
         try:
@@ -94,14 +94,14 @@ class Detention(commands.Cog):
         except IOError as e:
             self.logger.error(f"Error saving {file_path}", exc_info=True)
             
-    # --- Command Group ---
+    # Command Group
     detention_group = app_commands.Group(name="detention", description="Commands for managing the user detention system.")
 
     @detention_group.command(name="set-channel", description="Set the channel where users must serve detention.")
     @app_commands.describe(channel="The channel to use for all detentions.")
     @BotAdmin.is_bot_admin()
     async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        # NEW: Permission Check
+        # Permission Check
         perms = channel.permissions_for(interaction.guild.me)
         if not all([perms.send_messages, perms.manage_messages, perms.add_reactions, perms.read_message_history]):
             return await interaction.response.send_message(PERSONALITY["channel_perms_missing"], ephemeral=True)
@@ -138,7 +138,7 @@ class Detention(commands.Cog):
         except discord.Forbidden:
             return await interaction.response.send_message(PERSONALITY["cant_manage_user"].format(user=user.display_name), ephemeral=True)
         
-        # NEW: Create and pin the instruction message
+        # Create and pin the instruction message
         pin_embed = self._create_pin_embed(user, sentence, repetitions)
         pin_message = await detention_channel.send(embed=pin_embed)
         await pin_message.pin(reason=f"Detention pin for {user.display_name}")
@@ -176,13 +176,13 @@ class Detention(commands.Cog):
             detained_by = f"<@{data.get('detained_by_id', 'Unknown')}>"
             timestamp = f"<t:{data.get('start_timestamp', '0')}:R>"
             embed.add_field(
-                name=name,
-                value=f"**Remaining:** {data['reps_remaining']} / {data['total_reps']}\n"
-                      f"**Detained By:** {detained_by} ({timestamp})",
+                name = name,
+                value = f"**Remaining:** {data['reps_remaining']} / {data['total_reps']}\n"
+                        f"**Detained By:** {detained_by} ({timestamp})",
                 inline=False
             )
         await interaction.response.send_message(embed=embed, ephemeral=True)
-        
+
     def _create_pin_embed(self, user: discord.Member, sentence: str, remaining: int) -> discord.Embed:
         embed = discord.Embed(
             title=f"Detention for {user.display_name}",

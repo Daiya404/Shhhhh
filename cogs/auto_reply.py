@@ -33,7 +33,7 @@ class AutoReply(commands.Cog):
         self.regex_cache: Dict[str, re.Pattern] = {}
         self._build_all_regex_caches()
 
-    # --- Data & Cache ---
+    # Data & Cache
     def _load_json(self) -> Dict:
         if not self.replies_file.exists(): return {}
         try:
@@ -68,7 +68,7 @@ class AutoReply(commands.Cog):
         pattern = r'\b(' + '|'.join(re.escape(word) for word in all_triggers) + r')\b'
         self.regex_cache[guild_id] = re.compile(pattern, re.IGNORECASE)
 
-    # --- Core Logic for Traffic Cop ---
+    # Core Logic for Traffic Cop
     async def check_for_reply(self, message: discord.Message) -> bool:
         """Checks for a trigger and sends a reply. Returns True if handled."""
         if not message.guild: return False
@@ -95,10 +95,6 @@ class AutoReply(commands.Cog):
         return False
 
     async def _send_reply(self, message: discord.Message, reply: str):
-        """
-        Sends the reply. For this feature, we just send the raw text/URL.
-        Discord will automatically render the image preview.
-        """
         try:
             await message.reply(reply, mention_author=False)
         except discord.Forbidden:
@@ -106,7 +102,7 @@ class AutoReply(commands.Cog):
         except Exception as e:
             self.logger.error(f"Failed to send auto-reply: {e}", exc_info=True)
 
-    # --- Command Group ---
+    # Command Group
     nga_group = app_commands.Group(name="nga", description="Manage automatic replies to trigger words.")
 
     @nga_group.command(name="add", description="Set up a new trigger word with a custom reply.")
@@ -117,7 +113,7 @@ class AutoReply(commands.Cog):
         trigger_key = trigger.lower().strip()
         if not trigger_key or not reply.strip():
             return await interaction.response.send_message(PERSONALITY["error_empty"], ephemeral=True)
-            
+
         self.reply_data.setdefault(guild_id, {})
         if trigger_key in self.reply_data[guild_id]:
             return await interaction.response.send_message(PERSONALITY["already_exists"], ephemeral=True)
@@ -125,11 +121,12 @@ class AutoReply(commands.Cog):
         self.reply_data[guild_id][trigger_key] = {"reply": reply, "alts": []}
         await self._save_json()
         self._update_regex_for_guild(guild_id)
-        
+
         await interaction.response.send_message(PERSONALITY["trigger_set"].format(trigger=trigger), ephemeral=True)
 
     @nga_group.command(name="add-alt", description="Add an alternative word to an existing trigger.")
     @app_commands.describe(main_trigger="The trigger to add an alternative for.", alternative="The new alternative word.")
+
     @BotAdmin.is_bot_admin()
     async def add_alt(self, interaction: discord.Interaction, main_trigger: str, alternative: str):
         guild_id = str(interaction.guild_id)
@@ -173,7 +170,7 @@ class AutoReply(commands.Cog):
         guild_triggers = self.reply_data.get(guild_id, {})
         if not guild_triggers:
             return await interaction.response.send_message(PERSONALITY["list_empty"], ephemeral=True)
-            
+
         embed = discord.Embed(title="Server Auto-Replies (`/nga`)", color=discord.Color.blue())
         description = []
         for trigger, data in sorted(guild_triggers.items()):

@@ -8,7 +8,7 @@ import re
 from typing import Dict, List
 from .bot_admin import BotAdmin
 
-# --- Personality Responses for this Cog ---
+# Personality Responses for this Cog
 PERSONALITY = {
     "word_added": "Noted. I will now watch for that word.",
     "word_removed": "Fine, I've removed that word from the blocklist.",

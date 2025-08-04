@@ -73,7 +73,7 @@ class Reminders(commands.Cog):
         self.reminders = still_active
         await self._save_json(self.reminders, self.reminders_file)
 
-    # --- Command Groups ---
+    # Command Groups
     remind_group = app_commands.Group(name="remind", description="Set, view, or delete personal reminders.")
     settings_group = app_commands.Group(name="settings", parent=remind_group, description="Manage your personal reminder settings.")
     admin_group = app_commands.Group(name="remind-admin", description="Admin commands for managing reminders.")
@@ -161,6 +161,7 @@ class Reminders(commands.Cog):
 
     @admin_group.command(name="delete", description="Forcibly delete any user's reminder by its ID.")
     @app_commands.describe(reminder_id="The full ID of the reminder to delete.")
+    # Is Admin? Check
     @BotAdmin.is_bot_admin()
     async def admin_delete(self, interaction: discord.Interaction, reminder_id: str):
         reminder_to_delete = next((r for r in self.reminders if r["reminder_id"] == reminder_id), None)
@@ -169,7 +170,7 @@ class Reminders(commands.Cog):
         await self._save_json(self.reminders, self.reminders_file)
         await interaction.response.send_message(PERSONALITY["admin_deleted"].format(id=f"`{reminder_id}`"), ephemeral=True)
         
-    # --- Helper Functions ---
+    # Helper Functions
     async def _send_reminder(self, reminder: Dict):
         user = self.bot.get_user(reminder["user_id"])
         if not user: return
@@ -184,7 +185,7 @@ class Reminders(commands.Cog):
         )
         embed.set_footer(text=f"Set in: #{channel_name}")
 
-        # --- NEW DELIVERY LOGIC ---
+        # DELIVERY LOGIC
         should_remind_in_channel = self.user_settings.get(guild_id, {}).get(user_id, {}).get("remind_in_channel", False)
 
         if should_remind_in_channel:

@@ -6,7 +6,7 @@ from pathlib import Path
 import logging
 from typing import Dict, List
 
-# A self-contained personality for this cog's responses
+# personality for this cog's responses
 PERSONALITY = {
     "admin_added": "Fine, I'll acknowledge `{user}`'s commands now. You're taking responsibility for them. 😒",
     "admin_removed": "Noted. `{user}` is no longer a bot admin.",
@@ -40,7 +40,7 @@ class BotAdmin(commands.Cog):
         except IOError as e:
             self.logger.error(f"Error saving {self.admins_file}: {e}", exc_info=True)
 
-    # This is the custom check that other commands will use.
+    # Is Admin? check
     def is_bot_admin():
         """A custom check to verify if a user has bot admin privileges."""
         async def predicate(interaction: discord.Interaction) -> bool:
@@ -61,14 +61,13 @@ class BotAdmin(commands.Cog):
             return False
         return app_commands.check(predicate)
 
-    # --- Command Group Definition ---
+    # Command Group Definition
     # This single line creates the `/botadmin` "folder" for our commands.
     # It is restricted to server administrators by default.
     admin_group = app_commands.Group(
         name="botadmin",
         description="Manage who can use Tika's admin commands.",
-        default_permissions=discord.Permissions(administrator=True)
-    )
+        default_permissions=discord.Permissions(administrator=True))
 
     @admin_group.command(name="add", description="Allow a user to use admin commands.")
     @app_commands.describe(user="The user to grant permissions to.")
@@ -92,7 +91,7 @@ class BotAdmin(commands.Cog):
         if guild_id not in self.bot_admins or user.id not in self.bot_admins[guild_id]:
             await interaction.response.send_message(PERSONALITY["not_admin"], ephemeral=True)
             return
-            
+
         self.bot_admins[guild_id].remove(user.id)
         if not self.bot_admins[guild_id]:
             del self.bot_admins[guild_id]
@@ -105,7 +104,7 @@ class BotAdmin(commands.Cog):
         if guild_id not in self.bot_admins or not self.bot_admins[guild_id]:
             await interaction.response.send_message(PERSONALITY["no_admins"], ephemeral=True)
             return
-            
+
         embed = discord.Embed(title="Delegated Bot Admins", color=discord.Color.blue())
         admin_mentions = [f"<@{uid}>" for uid in self.bot_admins[guild_id]]
         embed.description = "\n".join(admin_mentions)

@@ -9,7 +9,7 @@ from typing import Dict, List
 
 from .bot_admin import BotAdmin
 
-# --- Personality Responses for this Cog ---
+# Personality Responses for this Cog
 PERSONALITY = {
     "global_enabled": "You're lucky I'm here to fix your broken embeds. Link fixer is now **ON** for the server.",
     "global_disabled": "Fine, I'll stop fixing links for everyone. The system is now **OFF** for the server.",
@@ -32,7 +32,7 @@ class LinkFixer(commands.Cog):
             r'https?:\/\/(?:www\.)?(?:twitter|x)\.com\/[a-zA-Z0-9_]+\/status\/[0-9]+'
         )
 
-    # --- Data Handling ---
+    # Data Handling
     def _load_json(self) -> Dict:
         if not self.settings_file.exists(): return {}
         try:
@@ -49,9 +49,9 @@ class LinkFixer(commands.Cog):
         except IOError as e:
             self.logger.error(f"Error saving {self.settings_file}: {e}")
 
-    # --- Core Logic for the "Traffic Cop" ---
+    # Traffic Cop implementation
     async def check_and_fix_link(self, message: discord.Message) -> bool:
-        """Checks for a fixable link and handles it. Returns True if handled."""
+        # Checks for a fixable link and handles it. Returns True if handled
         if not message.guild: return False
 
         guild_id = str(message.guild.id)
@@ -78,7 +78,7 @@ class LinkFixer(commands.Cog):
             elif "x.com" in link:
                 fixed_content = fixed_content.replace("x.com", "vxtwitter.com")
 
-        # If the content hasn't changed, do nothing (shouldn't happen)
+        # If the content hasn't changed, do nothing
         if fixed_content == message.content:
             return False
             
@@ -101,9 +101,9 @@ class LinkFixer(commands.Cog):
         except Exception as e:
             self.logger.error(f"Failed to fix link: {e}", exc_info=True)
             
-        return True # We handled the message, so the traffic cop should stop
+        return True # traffic cop stop
 
-    # --- Command Group ---
+    # Command Group
     fixer_group = app_commands.Group(name="linkfixer", description="Commands to manage the link fixing feature.")
 
     @fixer_group.command(name="toggle-global", description="Turn the link fixer ON or OFF for the entire server.")
