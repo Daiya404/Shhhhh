@@ -3,7 +3,8 @@
     "target_role_ids": [
       1377250844180877334
     ],
-    "detention_channel_id": 1400843330279047380
+    "detention_channel_id": 1400843330279047380,
+    "word_game_channel_id": 1377250845338501261
   },
   "932255513893290024": {
     "detention_channel_id": 1400910784393117797
