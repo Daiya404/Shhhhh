@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import asyncio
 from collections import defaultdict
+from dotenv import load_dotenv
 
 # logging setup
 logger = logging.getLogger('discord')
@@ -27,7 +28,7 @@ class TikaBot(commands.Bot):
         intents.reactions = True
 
         super().__init__(
-            command_prefix=["!tika ", "!Tika "],
+            command_prefix=tuple(["!tika ", "!Tika "]),
             intents=intents,
             help_command=None
         )
@@ -87,6 +88,12 @@ class TikaBot(commands.Bot):
         # Priority 5: Prefix Commands
         await self.process_commands(message)
 
+        # Priority 6: Chat Bot
+        if not message.content.startswith(self.command_prefix):
+            chat_bot = self.get_cog("ChatBot")
+            if chat_bot:
+                await chat_bot.handle_mention(message)
+
     async def on_ready(self):
         activity = discord.Game(name="Doing things. Perfectly, of course.")
         await self.change_presence(status=discord.Status.online, activity=activity)
@@ -98,6 +105,7 @@ class TikaBot(commands.Bot):
 
 
 async def main():
+    load_dotenv()  # Load environment variables from .env file if it exists
     token_file = Path("token.txt") # maybe switch to .env later
     if not token_file.exists() or not token_file.read_text().strip():
         logger.critical("`token.txt` not found or is empty.")
