@@ -69,111 +69,69 @@ class CopyChapel(commands.Cog):
     def _invalidate_cache(self, guild_id: int):
         self.config_cache.pop(guild_id, None)
 
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
-        self.logger.debug(f"Reaction added: {payload.emoji} in guild {payload.guild_id}")
-        await self._handle_reaction(payload, is_add=True)
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
-        self.logger.debug(f"Reaction removed: {payload.emoji} in guild {payload.guild_id}")
-        await self._handle_reaction(payload, is_add=False)
-
-    async def _handle_reaction(self, payload: discord.RawReactionActionEvent, is_add: bool):
-        if not payload.guild_id: 
-            self.logger.debug("No guild_id in payload, skipping")
-            return
+    async def _get_message(self, channel_id: int, message_id: int) -> Optional[discord.Message]:
+        """Optimized message fetching with caching."""
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
+            channel = await self.bot.fetch_channel(channel_id)
+        
+        if not isinstance(channel, discord.TextChannel):
+            return None
             
-        config = self._get_config(payload.guild_id)
-        if not config:
-            self.logger.debug(f"No config found for guild {payload.guild_id}")
-            return
-            
-        # Convert emoji to string for comparison
-        emoji_str = str(payload.emoji)
-        config_emoji = config["emote"]
+        return await channel.fetch_message(message_id)
+
+    async def _bot_has_reacted(self, reaction: Optional[discord.Reaction]) -> bool:
+        """Check if bot has already reacted."""
+        if not reaction:
+            return False
         
-        self.logger.debug(f"Comparing emojis: payload='{emoji_str}' vs config='{config_emoji}'")
-        
-        if emoji_str != config_emoji:
-            self.logger.debug(f"Emoji mismatch: {emoji_str} != {config_emoji}")
-            return
+        async for user in reaction.users():
+            if user.id == self.bot.user.id:
+                return True
+        return False
 
-        self.logger.info(f"Processing chapel reaction {emoji_str} in guild {payload.guild_id}")
-
-        try:
-            # Get the channel and message
-            channel = self.bot.get_channel(payload.channel_id)
-            if not channel:
-                channel = await self.bot.fetch_channel(payload.channel_id)
-            
-            if not isinstance(channel, discord.TextChannel): 
-                self.logger.debug(f"Channel {payload.channel_id} is not a text channel")
-                return
-                
-            message = await channel.fetch_message(payload.message_id)
-        except (discord.NotFound, discord.Forbidden) as e:
-            self.logger.error(f"Could not fetch message {payload.message_id}: {e}")
-            return
-
-        # Skip bot messages
-        if message.author.bot:
-            self.logger.debug("Skipping bot message")
-            return
-
-        # Get reaction count AFTER fetching message to get accurate count
-        reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
-        reaction_count = reaction.count if reaction else 0
-        
-        # Check if bot has already reacted
-        bot_already_reacted = False
-        if reaction:
-            async for user in reaction.users():
-                if user.id == self.bot.user.id:
-                    bot_already_reacted = True
-                    break
-        
-        self.logger.info(f"Reaction count for message {message.id}: {reaction_count}, threshold: {config['threshold']}, bot reacted: {bot_already_reacted}")
-
-        # Get chapel channel
-        chapel_channel = self.bot.get_channel(config["channel_id"])
-        if not chapel_channel:
+    async def _get_chapel_channel(self, channel_id: int) -> Optional[discord.TextChannel]:
+        """Get chapel channel with error handling."""
+        channel = self.bot.get_channel(channel_id)
+        if not channel:
             try:
-                chapel_channel = await self.bot.fetch_channel(config["channel_id"])
+                channel = await self.bot.fetch_channel(channel_id)
             except (discord.NotFound, discord.Forbidden) as e:
-                self.logger.error(f"Could not access chapel channel {config['channel_id']}: {e}")
-                return
-        
-        gid_str, msg_id_str = str(payload.guild_id), str(message.id)
-        self.message_map.setdefault(gid_str, {})
-        existing_chapel_id = self.message_map[gid_str].get(msg_id_str)
+                self.logger.error(f"Could not access chapel channel {channel_id}: {e}")
+                return None
+        return channel
 
-        # If this is an add event and the user is not the bot
-        if is_add and payload.user_id != self.bot.user.id:
-            # Add bot reaction automatically when a user reacts (if bot hasn't already)
-            if not bot_already_reacted:
-                try:
-                    await message.add_reaction(payload.emoji)
-                    reaction_count += 1  # Update count since bot just added a reaction
-                    self.logger.debug(f"Bot automatically added reaction to boost count to {reaction_count}")
-                except (discord.Forbidden, discord.HTTPException) as e:
-                    self.logger.debug(f"Could not add bot reaction: {e}")
+    async def _create_chapel_message(self, chapel_channel: discord.TextChannel, message: discord.Message, 
+                                   emoji: Union[discord.Emoji, discord.PartialEmoji, str], count: int, 
+                                   gid_str: str, msg_id_str: str):
+        """Create a new chapel message."""
+        try:
+            embed = await self._create_chapel_embed(message, emoji, count)
+            chapel_message = await chapel_channel.send(embed=embed)
+            self.message_map[gid_str][msg_id_str] = chapel_message.id
+            await self._save_json(self.message_map, self.message_map_file)
+            self.logger.info(f"Created chapel message {chapel_message.id}")
+        except discord.Forbidden:
+            self.logger.error("No permission to send messages in chapel channel")
+        except Exception as e:
+            self.logger.error(f"Error creating chapel message: {e}", exc_info=True)
 
-        # Only create chapel message if bot just reacted and no chapel message exists yet
-        if is_add and payload.user_id == self.bot.user.id and not existing_chapel_id:
-            self.logger.info(f"Bot reacted, creating new chapel message")
-            
-            try:
-                embed = await self._create_chapel_embed(message, payload.emoji, reaction_count)
-                chapel_message = await chapel_channel.send(embed=embed)
-                self.message_map[gid_str][msg_id_str] = chapel_message.id
-                await self._save_json(self.message_map, self.message_map_file)
-                self.logger.info(f"Created new chapel message {chapel_message.id}")
-                    
-            except discord.Forbidden as e:
-                self.logger.error(f"No permission to send messages in chapel channel: {e}")
-            except Exception as e:
-                self.logger.error(f"Error creating chapel message: {e}", exc_info=True)
+    async def _update_chapel_message(self, chapel_channel: discord.TextChannel, chapel_id: int, 
+                                   message: discord.Message, emoji: Union[discord.Emoji, discord.PartialEmoji, str], 
+                                   count: int, gid_str: str, msg_id_str: str):
+        """Update existing chapel message with new reaction count."""
+        try:
+            chapel_message = await chapel_channel.fetch_message(chapel_id)
+            embed = await self._create_chapel_embed(message, emoji, count)
+            await chapel_message.edit(embed=embed)
+            self.logger.debug(f"Updated chapel message {chapel_id} with count {count}")
+        except discord.NotFound:
+            # Chapel message was deleted, remove from map
+            self.message_map[gid_str].pop(msg_id_str, None)
+            await self._save_json(self.message_map, self.message_map_file)
+            self.logger.debug(f"Chapel message {chapel_id} not found, removed from map")
+        except Exception as e:
+            self.logger.error(f"Error updating chapel message: {e}", exc_info=True)
 
     async def _create_chapel_embed(self, message: discord.Message, emoji: Union[discord.Emoji, discord.PartialEmoji, str], count: int) -> discord.Embed:
         """Creates an embed that mimics Discord's message format."""
@@ -235,6 +193,73 @@ class CopyChapel(commands.Cog):
         )
         
         return embed
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        self.logger.debug(f"Reaction added: {payload.emoji} in guild {payload.guild_id}")
+        await self._handle_reaction(payload, is_add=True)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        self.logger.debug(f"Reaction removed: {payload.emoji} in guild {payload.guild_id}")
+        await self._handle_reaction(payload, is_add=False)
+
+    async def _handle_reaction(self, payload: discord.RawReactionActionEvent, is_add: bool):
+        # Early returns for invalid conditions
+        if not payload.guild_id:
+            return
+            
+        config = self._get_config(payload.guild_id)
+        if not config or str(payload.emoji) != config["emote"]:
+            return
+
+        # Get message and validate
+        try:
+            message = await self._get_message(payload.channel_id, payload.message_id)
+            if not message or message.author.bot:
+                return
+        except (discord.NotFound, discord.Forbidden):
+            self.logger.error(f"Could not fetch message {payload.message_id}")
+            return
+
+        # Get chapel channel and message tracking
+        chapel_channel = await self._get_chapel_channel(config["channel_id"])
+        if not chapel_channel:
+            return
+            
+        gid_str, msg_id_str = str(payload.guild_id), str(message.id)
+        self.message_map.setdefault(gid_str, {})
+        existing_chapel_id = self.message_map[gid_str].get(msg_id_str)
+
+        # Get initial reaction data
+        reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
+        bot_already_reacted = await self._bot_has_reacted(reaction)
+        
+        # Auto-react when user reacts (but not when bot reacts)
+        if is_add and payload.user_id != self.bot.user.id and not bot_already_reacted:
+            try:
+                await message.add_reaction(payload.emoji)
+                self.logger.debug(f"Bot auto-reacted")
+                # Refetch message to get updated reaction count
+                message = await self._get_message(payload.channel_id, payload.message_id)
+                if not message:
+                    return
+            except (discord.Forbidden, discord.HTTPException) as e:
+                self.logger.debug(f"Could not add bot reaction: {e}")
+
+        # Get final reaction count after any bot auto-reaction
+        reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
+        reaction_count = reaction.count if reaction else 0
+        
+        self.logger.debug(f"Processing reaction: count={reaction_count}, is_add={is_add}, user={payload.user_id}")
+
+        # Create chapel message when bot reacts for the first time
+        if is_add and payload.user_id == self.bot.user.id and not existing_chapel_id:
+            await self._create_chapel_message(chapel_channel, message, payload.emoji, reaction_count, gid_str, msg_id_str)
+        
+        # Update existing chapel message with new reaction count
+        elif existing_chapel_id:
+            await self._update_chapel_message(chapel_channel, existing_chapel_id, message, payload.emoji, reaction_count, gid_str, msg_id_str)
 
     # --- Admin Command Group ---
     admin_group = app_commands.Group(name="chapel-admin", description="Admin commands for the copy chapel feature.")
