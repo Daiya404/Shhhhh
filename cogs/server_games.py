@@ -119,13 +119,23 @@ class HangmanView(View):
         
         self.winner = False
         self.game_ended = True
-        embed = self.message.embeds[0]
+        
+        # Safely get embed or create new one
+        try:
+            embed = self.message.embeds[0] if self.message and self.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
         embed.title = f"Game Resigned - The word was **{self.word.upper()}**"
         embed.description = f"{HANGMAN_PICS[-1]}\n\n`{self.word.upper()}`"
         embed.color = discord.Color.red()
         self.create_buttons()
         
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            # If interaction was already responded to, try to edit the original message
+            await interaction.edit_original_response(embed=embed, view=self)
         self.stop()
 
     def get_display_word(self) -> str:
@@ -159,7 +169,12 @@ class HangmanView(View):
         display_word = self.get_display_word()
         guessed_display = self.get_guessed_letters_display()
         
-        embed = self.message.embeds[0]
+        # Safely get embed
+        try:
+            embed = self.message.embeds[0] if self.message and self.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
         embed.description = f"{HANGMAN_PICS[self.wrong_guesses]}\n\n`{display_word}`\n\n**Guessed:** {guessed_display}"
 
         # Check for win/loss
@@ -177,21 +192,31 @@ class HangmanView(View):
             self.stop()
 
         self.create_buttons()
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     async def on_timeout(self):
         if self.game_ended:
             return
         self.game_ended = True
         self.winner = "Timeout"
-        embed = self.message.embeds[0] if self.message and self.message.embeds else discord.Embed()
+        
+        try:
+            embed = self.message.embeds[0] if self.message and self.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
         embed.title = "Game timed out."
         embed.description = f"{HANGMAN_PICS[-1]}\n\nThe word was **{self.word.upper()}**."
         embed.color = discord.Color.orange()
         self.create_buttons()
+        
         try: 
-            await self.message.edit(embed=embed, view=self)
-        except (discord.NotFound, discord.HTTPException):
+            if self.message:
+                await self.message.edit(embed=embed, view=self)
+        except (discord.NotFound, discord.HTTPException, AttributeError):
             pass
         self.stop()
 
@@ -210,8 +235,13 @@ class TicTacToeButton(Button):
     def __init__(self, x: int, y: int, **kwargs):
         super().__init__(**kwargs)
         self.x, self.y = x, y
+        
     async def callback(self, interaction: discord.Interaction):
-        await self.view.handle_move(interaction, self.x, self.y)
+        try:
+            await self.view.handle_move(interaction, self.x, self.y)
+        except Exception as e:
+            self.view.game_cog.logger.error(f"Error in TicTacToe button callback: {e}")
+            await interaction.response.send_message("An error occurred. Please try again.", ephemeral=True)
 
 class TicTacToeView(View):
     def __init__(self, game_cog, player1: discord.Member, player2: discord.Member):
@@ -253,12 +283,20 @@ class TicTacToeView(View):
         
         self.winner = winner
         self.game_ended = True
-        embed = interaction.message.embeds[0]
+        
+        try:
+            embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
         embed.description = PERSONALITY["game_resigned"].format(player=resigning_player.mention, winner=winner.mention)
         embed.color = discord.Color.orange()
         self.create_board()
         
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
         self.stop()
 
     async def handle_move(self, interaction: discord.Interaction, x: int, y: int):
@@ -269,7 +307,11 @@ class TicTacToeView(View):
         
         self.board[y][x] = "X" if self.turn == self.players[0] else "O"
         win_result = self.check_for_win()
-        embed = interaction.message.embeds[0]
+        
+        try:
+            embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
         
         if win_result:
             self.winner = win_result
@@ -289,22 +331,34 @@ class TicTacToeView(View):
             embed.description = f"It's **{self.turn.mention}'s** turn."
         
         self.create_board()
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     async def on_timeout(self):
         if self.game_ended:
             return
         self.game_ended = True
         self.winner = "Timeout"
-        if self.message and self.message.embeds:
-            embed = self.message.embeds[0]
-            embed.description = PERSONALITY["game_timeout"]
-            embed.color = discord.Color.red()
-            self.create_board()
-            try: 
+        
+        try:
+            if self.message and self.message.embeds:
+                embed = self.message.embeds[0]
+            else:
+                embed = discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
+        embed.description = PERSONALITY["game_timeout"]
+        embed.color = discord.Color.red()
+        self.create_board()
+        
+        try: 
+            if self.message:
                 await self.message.edit(embed=embed, view=self)
-            except (discord.NotFound, discord.HTTPException): 
-                pass
+        except (discord.NotFound, discord.HTTPException, AttributeError): 
+            pass
         self.stop()
 
     async def on_stop(self): 
@@ -337,8 +391,13 @@ class Connect4Button(Button):
     def __init__(self, column: int, **kwargs):
         super().__init__(**kwargs)
         self.column = column
+        
     async def callback(self, interaction: discord.Interaction):
-        await self.view.handle_move(interaction, self.column)
+        try:
+            await self.view.handle_move(interaction, self.column)
+        except Exception as e:
+            self.view.game_cog.logger.error(f"Error in Connect4 button callback: {e}")
+            await interaction.response.send_message("An error occurred. Please try again.", ephemeral=True)
 
 class Connect4View(View):
     def __init__(self, game_cog, player1: discord.Member, player2: discord.Member):
@@ -400,12 +459,20 @@ class Connect4View(View):
         
         self.winner = winner
         self.game_ended = True
-        embed = interaction.message.embeds[0]
+        
+        try:
+            embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
         embed.description = f"{self.get_board_string()}\n\n{PERSONALITY['game_resigned'].format(player=resigning_player.mention, winner=winner.mention)}"
         embed.color = discord.Color.orange()
         self.create_buttons()
         
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
         self.stop()
 
     def get_board_string(self) -> str:
@@ -434,7 +501,11 @@ class Connect4View(View):
             return await interaction.response.send_message(PERSONALITY["invalid_move"], ephemeral=True)
 
         win_result = self.check_for_win()
-        embed = interaction.message.embeds[0]
+        
+        try:
+            embed = interaction.message.embeds[0] if interaction.message and interaction.message.embeds else discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
         
         if win_result:
             self.winner = win_result
@@ -454,22 +525,34 @@ class Connect4View(View):
             embed.description = f"{self.get_board_string()}\n\nIt's **{self.turn.mention}'s** turn."
         
         self.create_buttons()
-        await interaction.response.edit_message(embed=embed, view=self)
+        try:
+            await interaction.response.edit_message(embed=embed, view=self)
+        except discord.InteractionResponded:
+            await interaction.edit_original_response(embed=embed, view=self)
 
     async def on_timeout(self):
         if self.game_ended:
             return
         self.game_ended = True
         self.winner = "Timeout"
-        if self.message and self.message.embeds:
-            embed = self.message.embeds[0]
-            embed.description = f"{self.get_board_string()}\n\n{PERSONALITY['game_timeout']}"
-            embed.color = discord.Color.red()
-            self.create_buttons()
-            try: 
+        
+        try:
+            if self.message and self.message.embeds:
+                embed = self.message.embeds[0]
+            else:
+                embed = discord.Embed()
+        except (IndexError, AttributeError):
+            embed = discord.Embed()
+            
+        embed.description = f"{self.get_board_string()}\n\n{PERSONALITY['game_timeout']}"
+        embed.color = discord.Color.red()
+        self.create_buttons()
+        
+        try: 
+            if self.message:
                 await self.message.edit(embed=embed, view=self)
-            except (discord.NotFound, discord.HTTPException): 
-                pass
+        except (discord.NotFound, discord.HTTPException, AttributeError): 
+            pass
         self.stop()
         
     async def on_stop(self): 
@@ -504,6 +587,29 @@ class Connect4View(View):
                         return player
         return None
 
+# --- Challenge View Class (extracted for better organization) ---
+class ChallengeView(View):
+    def __init__(self, opponent: discord.Member, timeout=60): 
+        super().__init__(timeout=timeout)
+        self.opponent = opponent
+        self.accepted = None
+        
+    @discord.ui.button(label="Accept", style=ButtonStyle.success)
+    async def accept(self, interaction: discord.Interaction, button: Button):
+        if interaction.user != self.opponent: 
+            return await interaction.response.send_message("This isn't your challenge.", ephemeral=True)
+        await interaction.response.defer()
+        self.accepted = True
+        self.stop()
+        
+    @discord.ui.button(label="Decline", style=ButtonStyle.danger)
+    async def decline(self, interaction: discord.Interaction, button: Button):
+        if interaction.user != self.opponent: 
+            return await interaction.response.send_message("This isn't your challenge.", ephemeral=True)
+        await interaction.response.defer()
+        self.accepted = False
+        self.stop()
+
 # --- Main Cog Class ---
 class ServerGames(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -529,31 +635,56 @@ class ServerGames(commands.Cog):
             return True
         return False
 
+    def _validate_challenge(self, challenger: discord.Member, opponent: discord.Member) -> Optional[str]:
+        """Validate a game challenge and return error message if invalid."""
+        if challenger.id == opponent.id:
+            return "You can't challenge yourself."
+        if opponent.bot:
+            return "You can't challenge a bot."
+        
+        # Aggressive cleanup approach - force clean if stuck
+        if self.active_games.get(challenger.id):
+            self.logger.warning(f"Challenger {challenger.id} was stuck in game state, force cleaning")
+            self._force_cleanup_player(challenger.id)
+            
+        if self.active_games.get(opponent.id):
+            self.logger.warning(f"Opponent {opponent.id} was stuck in game state, force cleaning")
+            self._force_cleanup_player(opponent.id)
+            
+        return None
+
     game_group = app_commands.Group(name="game", description="Play a game with another server member.")
 
     @game_group.command(name="hangman", description="Play a single-player game of Hangman.")
     async def hangman(self, interaction: discord.Interaction):
         player = interaction.user
         
-        # Force cleanup if player is stuck (more aggressive approach)
+        # Force cleanup if player is stuck (aggressive approach like original)
         if self.active_games.get(player.id):
             self.logger.warning(f"Player {player.id} was stuck in game state, force cleaning")
             self._force_cleanup_player(player.id)
         
-        self.active_games[player.id] = "hangman"
-        self.logger.info(f"Started hangman game for player {player.id}")
-        
-        view = HangmanView(self, player)
-        
-        embed = discord.Embed(
-            title="Playing Hangman!",
-            description=f"{HANGMAN_PICS[0]}\n\n`{view.get_display_word()}`\n\n**Guessed:** None",
-            color=discord.Color.blue()
-        )
-        embed.set_footer(text=PERSONALITY["hangman_start"].format(lives=view.max_lives))
+        try:
+            self.active_games[player.id] = "hangman"
+            self.logger.info(f"Started hangman game for player {player.id}")
+            
+            view = HangmanView(self, player)
+            
+            embed = discord.Embed(
+                title="Playing Hangman!",
+                description=f"{HANGMAN_PICS[0]}\n\n`{view.get_display_word()}`\n\n**Guessed:** None",
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=PERSONALITY["hangman_start"].format(lives=view.max_lives))
 
-        await interaction.response.send_message(embed=embed, view=view)
-        view.message = await interaction.original_response()
+            await interaction.response.send_message(embed=embed, view=view)
+            view.message = await interaction.original_response()
+            
+        except Exception as e:
+            # Clean up on error
+            self._force_cleanup_player(player.id)
+            self.logger.error(f"Error starting hangman game: {e}")
+            await interaction.response.send_message("An error occurred while starting the game. Please try again.", ephemeral=True)
 
     @game_group.command(name="resign", description="Resign from your current game.")
     async def resign(self, interaction: discord.Interaction):
@@ -576,81 +707,66 @@ class ServerGames(commands.Cog):
     async def _start_challenge(self, interaction: discord.Interaction, opponent: discord.Member, game_type: Literal["tictactoe", "connect4"]):
         challenger = interaction.user
         
-        # Validation checks with auto-cleanup
-        if challenger.id == opponent.id: 
-            return await interaction.response.send_message("You can't challenge yourself.", ephemeral=True)
-        if opponent.bot: 
-            return await interaction.response.send_message("You can't challenge a bot.", ephemeral=True)
-            
-        # More aggressive cleanup approach
-        if self.active_games.get(challenger.id): 
-            self.logger.warning(f"Challenger {challenger.id} was stuck in game state, force cleaning")
-            self._force_cleanup_player(challenger.id)
-            
-        if self.active_games.get(opponent.id): 
-            self.logger.warning(f"Opponent {opponent.id} was stuck in game state, force cleaning")  
-            self._force_cleanup_player(opponent.id)
+        # Validation checks
+        error_msg = self._validate_challenge(challenger, opponent)
+        if error_msg:
+            return await interaction.response.send_message(error_msg, ephemeral=True)
 
         game_name = "Tic-Tac-Toe" if game_type == "tictactoe" else "Connect 4"
         
-        class ChallengeView(View):
-            def __init__(self, timeout=60): 
-                super().__init__(timeout=timeout)
-                self.accepted = None
-                
-            @discord.ui.button(label="Accept", style=ButtonStyle.success)
-            async def accept(self, i: discord.Interaction, b: Button):
-                if i.user != opponent: 
-                    return await i.response.send_message("This isn't your challenge.", ephemeral=True)
-                await i.response.defer()
-                self.accepted = True
-                self.stop()
-                
-            @discord.ui.button(label="Decline", style=ButtonStyle.danger)
-            async def decline(self, i: discord.Interaction, b: Button):
-                if i.user != opponent: 
-                    return await i.response.send_message("This isn't your challenge.", ephemeral=True)
-                await i.response.defer()
-                self.accepted = False
-                self.stop()
-
-        challenge_view = ChallengeView()
-        challenge_message = PERSONALITY["challenge_sent"].format(
-            challenger=challenger.mention, 
-            opponent=opponent.mention, 
-            game_name=game_name
-        )
-        
-        await interaction.response.send_message(challenge_message, view=challenge_view)
-        
-        await challenge_view.wait()
-        original_message = await interaction.original_response()
-
-        if challenge_view.accepted is True:
-            # Mark both players as in-game
-            self.active_games[challenger.id] = game_type
-            self.active_games[opponent.id] = game_type
-            self.logger.info(f"Started {game_type} game between {challenger.id} and {opponent.id}")
+        try:
+            challenge_view = ChallengeView(opponent)
+            challenge_message = PERSONALITY["challenge_sent"].format(
+                challenger=challenger.mention, 
+                opponent=opponent.mention, 
+                game_name=game_name
+            )
             
-            if game_type == "tictactoe":
-                game_view = TicTacToeView(self, challenger, opponent)
-                embed = discord.Embed(
-                    title="Playing Tic-Tac-Toe!", 
-                    description=PERSONALITY["challenge_accepted"].format(player=challenger.mention), 
-                    color=discord.Color.blue()
-                )
-            else:  # Connect 4
-                game_view = Connect4View(self, challenger, opponent)
-                embed = discord.Embed(title="Playing Connect 4!", color=discord.Color.blue())
-                embed.description = f"{game_view.get_board_string()}\n\n{PERSONALITY['challenge_accepted'].format(player=challenger.mention)}"
-
-            await original_message.edit(content=None, embed=embed, view=game_view)
-            game_view.message = original_message
+            await interaction.response.send_message(challenge_message, view=challenge_view)
             
-        elif challenge_view.accepted is False:
-            await original_message.edit(content=PERSONALITY["challenge_declined"].format(opponent=opponent.mention), view=None)
-        else:
-            await original_message.edit(content=PERSONALITY["challenge_timeout"].format(opponent=opponent.mention), view=None)
+            await challenge_view.wait()
+            original_message = await interaction.original_response()
+
+            if challenge_view.accepted is True:
+                # Mark both players as in-game
+                self.active_games[challenger.id] = game_type
+                self.active_games[opponent.id] = game_type
+                self.logger.info(f"Started {game_type} game between {challenger.id} and {opponent.id}")
+                
+                try:
+                    if game_type == "tictactoe":
+                        game_view = TicTacToeView(self, challenger, opponent)
+                        embed = discord.Embed(
+                            title="Playing Tic-Tac-Toe!", 
+                            description=PERSONALITY["challenge_accepted"].format(player=challenger.mention), 
+                            color=discord.Color.blue()
+                        )
+                    else:  # Connect 4
+                        game_view = Connect4View(self, challenger, opponent)
+                        embed = discord.Embed(title="Playing Connect 4!", color=discord.Color.blue())
+                        embed.description = f"{game_view.get_board_string()}\n\n{PERSONALITY['challenge_accepted'].format(player=challenger.mention)}"
+
+                    await original_message.edit(content=None, embed=embed, view=game_view)
+                    game_view.message = original_message
+                    
+                except Exception as e:
+                    # Clean up both players on error
+                    self._force_cleanup_player(challenger.id)
+                    self._force_cleanup_player(opponent.id)
+                    self.logger.error(f"Error starting {game_type} game: {e}")
+                    await original_message.edit(content="An error occurred while starting the game. Please try again.", view=None)
+                    
+            elif challenge_view.accepted is False:
+                await original_message.edit(content=PERSONALITY["challenge_declined"].format(opponent=opponent.mention), view=None)
+            else:
+                await original_message.edit(content=PERSONALITY["challenge_timeout"].format(opponent=opponent.mention), view=None)
+                
+        except Exception as e:
+            self.logger.error(f"Error in challenge process: {e}")
+            try:
+                await interaction.response.send_message("An error occurred while processing the challenge.", ephemeral=True)
+            except discord.InteractionResponded:
+                pass
 
     @game_group.command(name="tictactoe", description="Challenge someone to a game of Tic-Tac-Toe.")
     @app_commands.describe(opponent="The user you want to play against.")
@@ -685,6 +801,11 @@ class ServerGames(commands.Cog):
         count = len(self.active_games)
         self.active_games.clear()
         await interaction.response.send_message(f"Cleared {count} active games.", ephemeral=True)
+
+    @commands.Cog.listener()
+    async def on_error(self, event, *args, **kwargs):
+        """Handle any unhandled errors and clean up game states if necessary."""
+        self.logger.error(f"Unhandled error in {event}: {args}, {kwargs}")
 
 async def setup(bot):
     await bot.add_cog(ServerGames(bot))
