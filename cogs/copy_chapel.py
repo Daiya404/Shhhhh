@@ -58,7 +58,7 @@ class CopyChapel(commands.Cog):
         config = guild_data.get("chapel_config")
         
         if config and all(k in config for k in ["channel_id", "emote"]):
-            config.setdefault("threshold", 1)
+            config.setdefault("threshold", 2)  # Changed default from 1 to 2
             self.config_cache[guild_id] = config
             self.logger.debug(f"Loaded config for guild {guild_id}: {config}")
             return config
@@ -125,7 +125,15 @@ class CopyChapel(commands.Cog):
         reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
         reaction_count = reaction.count if reaction else 0
         
-        self.logger.info(f"Reaction count for message {message.id}: {reaction_count}, threshold: {config['threshold']}")
+        # Check if bot has already reacted
+        bot_already_reacted = False
+        if reaction:
+            async for user in reaction.users():
+                if user.id == self.bot.user.id:
+                    bot_already_reacted = True
+                    break
+        
+        self.logger.info(f"Reaction count for message {message.id}: {reaction_count}, threshold: {config['threshold']}, bot reacted: {bot_already_reacted}")
 
         # Get chapel channel
         chapel_channel = self.bot.get_channel(config["channel_id"])
@@ -140,67 +148,39 @@ class CopyChapel(commands.Cog):
         self.message_map.setdefault(gid_str, {})
         existing_chapel_id = self.message_map[gid_str].get(msg_id_str)
 
-        if reaction_count >= config["threshold"]:
-            self.logger.info(f"Threshold met, posting/updating chapel message")
-            
-            # Only add bot reaction when threshold is first met and we're creating a new message
-            if is_add and not existing_chapel_id:
+        # If this is an add event and the user is not the bot
+        if is_add and payload.user_id != self.bot.user.id:
+            # Add bot reaction automatically when a user reacts (if bot hasn't already)
+            if not bot_already_reacted:
                 try:
-                    bot_already_reacted = False
-                    if reaction:
-                        async for user in reaction.users():
-                            if user.id == self.bot.user.id:
-                                bot_already_reacted = True
-                                break
-                    
-                    if not bot_already_reacted:
-                        await message.add_reaction(payload.emoji)
-                        self.logger.debug(f"Bot added reaction to boost count")
+                    await message.add_reaction(payload.emoji)
+                    reaction_count += 1  # Update count since bot just added a reaction
+                    self.logger.debug(f"Bot automatically added reaction to boost count to {reaction_count}")
                 except (discord.Forbidden, discord.HTTPException) as e:
                     self.logger.debug(f"Could not add bot reaction: {e}")
+
+        # Only create chapel message if bot just reacted and no chapel message exists yet
+        if is_add and payload.user_id == self.bot.user.id and not existing_chapel_id:
+            self.logger.info(f"Bot reacted, creating new chapel message")
             
             try:
                 embed = await self._create_chapel_embed(message, payload.emoji, reaction_count)
-                
-                if existing_chapel_id:
-                    try:
-                        chapel_message = await chapel_channel.fetch_message(existing_chapel_id)
-                        await chapel_message.edit(embed=embed)
-                        self.logger.info(f"Updated existing chapel message {existing_chapel_id}")
-                    except discord.NotFound:
-                        self.logger.info(f"Existing chapel message {existing_chapel_id} not found, creating new one")
-                        chapel_message = await chapel_channel.send(embed=embed)
-                        self.message_map[gid_str][msg_id_str] = chapel_message.id
-                        await self._save_json(self.message_map, self.message_map_file)
-                else:
-                    chapel_message = await chapel_channel.send(embed=embed)
-                    self.message_map[gid_str][msg_id_str] = chapel_message.id
-                    await self._save_json(self.message_map, self.message_map_file)
-                    self.logger.info(f"Created new chapel message {chapel_message.id}")
+                chapel_message = await chapel_channel.send(embed=embed)
+                self.message_map[gid_str][msg_id_str] = chapel_message.id
+                await self._save_json(self.message_map, self.message_map_file)
+                self.logger.info(f"Created new chapel message {chapel_message.id}")
                     
             except discord.Forbidden as e:
                 self.logger.error(f"No permission to send messages in chapel channel: {e}")
             except Exception as e:
-                self.logger.error(f"Error creating/updating chapel message: {e}", exc_info=True)
-        
-        elif existing_chapel_id and not is_add:  # Only delete on reaction removal
-            self.logger.info(f"Threshold not met after removal, removing chapel message {existing_chapel_id}")
-            try:
-                chapel_message = await chapel_channel.fetch_message(existing_chapel_id)
-                await chapel_message.delete()
-                self.logger.info(f"Deleted chapel message {existing_chapel_id}")
-            except (discord.NotFound, discord.Forbidden) as e:
-                self.logger.debug(f"Could not delete chapel message {existing_chapel_id}: {e}")
-                
-            if self.message_map[gid_str].pop(msg_id_str, None):
-                await self._save_json(self.message_map, self.message_map_file)
+                self.logger.error(f"Error creating chapel message: {e}", exc_info=True)
 
     async def _create_chapel_embed(self, message: discord.Message, emoji: Union[discord.Emoji, discord.PartialEmoji, str], count: int) -> discord.Embed:
         """Creates an embed that mimics Discord's message format."""
         
-        # Main embed with message content
+        # Main embed with message content - using a more neutral color
         embed = discord.Embed(
-            color=0x2F3136,  # Discord dark theme color
+            color=0x5865F2,  # Discord blurple color
             timestamp=message.created_at
         )
         
@@ -210,44 +190,49 @@ class CopyChapel(commands.Cog):
             icon_url=message.author.display_avatar.url
         )
         
-        # Message content
-        if message.content:
-            embed.description = message.content
-        else:
-            embed.description = "*No text content*"
-        
-        # Handle replies
+        # Handle replies first
+        description_parts = []
         if message.reference and isinstance(message.reference.resolved, discord.Message):
             replied_to = message.reference.resolved
             reply_author = replied_to.author.display_name
             reply_content = replied_to.content or "*No text content*"
             
-            if len(reply_content) > 100:
-                reply_content = reply_content[:100] + "..."
+            if len(reply_content) > 50:
+                reply_content = reply_content[:50] + "..."
             
-            # Add reply info at the top of description
-            reply_text = f"**Replied to @{reply_author}**\n> {reply_content}\n\n"
-            embed.description = reply_text + (embed.description or "")
+            description_parts.append(f"**Replied to @{reply_author}**")
+            description_parts.append(f"> {reply_content}")
+            description_parts.append("")  # Empty line
+        
+        # Add main message content
+        if message.content:
+            description_parts.append(message.content)
         
         # Handle attachments
         if message.attachments:
-            attachment_urls = []
+            if description_parts and description_parts[-1]:  # Add spacing if there's content above
+                description_parts.append("")
+                
             for attachment in message.attachments:
                 if attachment.content_type and attachment.content_type.startswith('image/'):
                     # Set the first image as embed image
                     if not embed.image:
                         embed.set_image(url=attachment.url)
-                attachment_urls.append(f"[{attachment.filename}]({attachment.url})")
-            
-            if attachment_urls:
-                if embed.description and embed.description != "*No text content*":
-                    embed.description += f"\n\n**Attachments:**\n" + "\n".join(attachment_urls)
+                        description_parts.append(f"🖼️ **{attachment.filename}**")
+                    else:
+                        description_parts.append(f"🖼️ [{attachment.filename}]({attachment.url})")
                 else:
-                    embed.description = f"**Attachments:**\n" + "\n".join(attachment_urls)
+                    description_parts.append(f"📎 [{attachment.filename}]({attachment.url})")
         
-        # Add reaction info and jump link in footer
-        embed.set_footer(text=f"{emoji} {count} | #{message.channel.name} | Jump to message")
-        embed.url = message.jump_url
+        # Set the description
+        embed.description = "\n".join(description_parts) if description_parts else "*No content*"
+        
+        # Add reaction info and channel link in a single field without labels
+        embed.add_field(
+            name="\u200b",  # Invisible character for empty field name
+            value=f"[#{message.channel.name}]({message.jump_url}) | {emoji} {count}", 
+            inline=False
+        )
         
         return embed
 
@@ -276,25 +261,26 @@ class CopyChapel(commands.Cog):
         await i.response.send_message(f"✅ Chapel channel set to {channel.mention}.", ephemeral=True)
         self.logger.info(f"Chapel channel set to {channel.id} for guild {i.guild.id}")
 
-    @admin_group.command(name="set-emote", description="Set the custom emote to trigger the chapel.")
-    @app_commands.describe(emote="The custom emote from this server.")
+    @admin_group.command(name="set-emote", description="Set the emote to trigger the chapel (custom or unicode like ✨).")
+    @app_commands.describe(emote="The emote from this server or any unicode emoji like ✨")
     async def set_emote(self, i: discord.Interaction, emote: str):
         # Check if user has administrator permissions or is bot admin
         if not (i.user.guild_permissions.administrator or await self._is_bot_admin_fallback(i.user.id)):
             await i.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
             return
-            
-        # Try to match custom emoji pattern
+        
+        # Try to match custom emoji pattern first
         match = re.match(r'<a?:([a-zA-Z0-9_]+):([0-9]+)>', emote)
         if match:
+            # It's a custom emoji
             emoji_id = int(match.group(2))
             found_emote = self.bot.get_emoji(emoji_id)
             if not found_emote or found_emote.guild.id != i.guild.id:
                 return await i.response.send_message(PERSONALITY["invalid_emote"], ephemeral=True)
             emote_str = str(found_emote)
         else:
-            # Might be a unicode emoji
-            emote_str = emote
+            # Assume it's a unicode emoji (like ✨, 🎉, etc.)
+            emote_str = emote.strip()
         
         gid_str = str(i.guild.id)
         self.settings_data.setdefault(gid_str, {}).setdefault("chapel_config", {})["emote"] = emote_str
@@ -303,7 +289,7 @@ class CopyChapel(commands.Cog):
         await i.response.send_message(f"✅ Chapel emote set to {emote_str}.", ephemeral=True)
         self.logger.info(f"Chapel emote set to '{emote_str}' for guild {i.guild.id}")
 
-    @admin_group.command(name="set-threshold", description="Set how many reactions are needed to post a message (Default: 1).")
+    @admin_group.command(name="set-threshold", description="Set how many reactions are needed to post a message (Default: 2).")
     @app_commands.describe(count="The number of reactions required (e.g., 3).")
     async def set_threshold(self, i: discord.Interaction, count: app_commands.Range[int, 1, 100]):
         # Check if user has administrator permissions or is bot admin
