@@ -210,7 +210,23 @@ class CopyChapel(commands.Cog):
             return
             
         config = self._get_config(payload.guild_id)
-        if not config or str(payload.emoji) != config["emote"]:
+        if not config:
+            return
+            
+        # Better emoji comparison for both custom and unicode emojis
+        payload_emoji_str = str(payload.emoji)
+        config_emoji = config["emote"]
+        
+        # For unicode emojis, payload.emoji.name might be the actual emoji
+        if hasattr(payload.emoji, 'name') and payload.emoji.name == config_emoji:
+            emoji_match = True
+        elif payload_emoji_str == config_emoji:
+            emoji_match = True
+        else:
+            emoji_match = False
+            
+        if not emoji_match:
+            self.logger.debug(f"Emoji mismatch: payload='{payload_emoji_str}' vs config='{config_emoji}'")
             return
 
         # Get message and validate
@@ -231,15 +247,22 @@ class CopyChapel(commands.Cog):
         self.message_map.setdefault(gid_str, {})
         existing_chapel_id = self.message_map[gid_str].get(msg_id_str)
 
-        # Get initial reaction data
-        reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
+        # Get initial reaction data - use the config emoji for consistency
+        config_emoji_obj = config_emoji if isinstance(config_emoji, str) else payload.emoji
+        reaction = discord.utils.get(message.reactions, emoji=config_emoji_obj)
+        
+        # If not found with config emoji, try with payload emoji
+        if not reaction:
+            reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
+        
         bot_already_reacted = await self._bot_has_reacted(reaction)
         
         # Auto-react when user reacts (but not when bot reacts)
         if is_add and payload.user_id != self.bot.user.id and not bot_already_reacted:
             try:
-                await message.add_reaction(payload.emoji)
-                self.logger.debug(f"Bot auto-reacted")
+                # Use the config emoji for consistency
+                await message.add_reaction(config_emoji)
+                self.logger.debug(f"Bot auto-reacted with {config_emoji}")
                 # Refetch message to get updated reaction count
                 message = await self._get_message(payload.channel_id, payload.message_id)
                 if not message:
@@ -247,19 +270,21 @@ class CopyChapel(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as e:
                 self.logger.debug(f"Could not add bot reaction: {e}")
 
-        # Get final reaction count after any bot auto-reaction
-        reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
+        # Get final reaction count after any bot auto-reaction - use config emoji
+        reaction = discord.utils.get(message.reactions, emoji=config_emoji_obj)
+        if not reaction:
+            reaction = discord.utils.get(message.reactions, emoji=payload.emoji)
         reaction_count = reaction.count if reaction else 0
         
-        self.logger.debug(f"Processing reaction: count={reaction_count}, is_add={is_add}, user={payload.user_id}")
+        self.logger.debug(f"Processing reaction: emoji='{config_emoji}' count={reaction_count}, is_add={is_add}, user={payload.user_id}")
 
         # Create chapel message when bot reacts for the first time
         if is_add and payload.user_id == self.bot.user.id and not existing_chapel_id:
-            await self._create_chapel_message(chapel_channel, message, payload.emoji, reaction_count, gid_str, msg_id_str)
+            await self._create_chapel_message(chapel_channel, message, config_emoji, reaction_count, gid_str, msg_id_str)
         
         # Update existing chapel message with new reaction count
         elif existing_chapel_id:
-            await self._update_chapel_message(chapel_channel, existing_chapel_id, message, payload.emoji, reaction_count, gid_str, msg_id_str)
+            await self._update_chapel_message(chapel_channel, existing_chapel_id, message, config_emoji, reaction_count, gid_str, msg_id_str)
 
     # --- Admin Command Group ---
     admin_group = app_commands.Group(name="chapel-admin", description="Admin commands for the copy chapel feature.")
