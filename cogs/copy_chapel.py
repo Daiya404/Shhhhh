@@ -168,22 +168,18 @@ class CopyChapel(commands.Cog):
         
         # Handle attachments
         if message.attachments:
-            if description_parts and description_parts[-1]:  # Add spacing if there's content above
-                description_parts.append("")
-                
             for attachment in message.attachments:
                 if attachment.content_type and attachment.content_type.startswith('image/'):
-                    # Set the first image as embed image
-                    if not embed.image:
-                        embed.set_image(url=attachment.url)
-                        description_parts.append(f"🖼️ **{attachment.filename}**")
-                    else:
-                        description_parts.append(f"🖼️ [{attachment.filename}]({attachment.url})")
+                    # Set the image as embed image to display properly
+                    embed.set_image(url=attachment.url)
+                    # Don't add filename to description
                 else:
+                    if description_parts and description_parts[-1]:  # Add spacing if there's content above
+                        description_parts.append("")
                     description_parts.append(f"📎 [{attachment.filename}]({attachment.url})")
         
         # Set the description
-        embed.description = "\n".join(description_parts) if description_parts else "*No content*"
+        embed.description = "\n".join(description_parts) if description_parts else ""
         
         # Add reaction info and channel link in a single field without labels
         embed.add_field(
