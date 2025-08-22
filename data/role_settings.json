@@ -10,6 +10,11 @@
       "emote": "\u2728",
       "emote_text": "<:KMS:1407823046303027333>",
       "threshold": 2
+    },
+    "leveling_config": {
+      "min_xp": 12,
+      "max_xp": 37,
+      "cooldown": 5
     }
   },
   "932255513893290024": {

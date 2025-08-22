@@ -46,7 +46,7 @@ class WordGame(commands.Cog):
         await self.bot.wait_until_ready()
         now = time.time()
         for guild_id_str, state in list(self.game_state.items()):
-            if now - state.get("timestamp", 0) > 1800: # 30 minutes
+            if now - state.get("timestamp", 0) > 432000: # 12 hrs
                 guild = self.bot.get_guild(int(guild_id_str))
                 if not guild: continue
                 channel_id = self.settings_data.get(guild_id_str, {}).get("word_game_channel_id")
