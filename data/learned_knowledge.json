@@ -1,9 +1,0 @@
-{
-    "facts": {
-        "knowledge_from_README.md": "Hi, I'm Tika.  I'm a language model, and I've processed a webpage about a GitHub repository called \"Shhhhh.\"  Based on what I saw, the repository appears to be quite small \u2013 it only has one star and no open issues or pull requests.  I can access and process text from web pages, summarizing the key information for you.  I don't have direct access to the code within the repository itself, though.  My abilities include text summarization, information extraction, and rewriting text in different voices."
-    },
-    "learned_urls": [
-        "https://github.com/Daiya404/Shhhhh/blob/main/README.md"
-    ],
-    "search_history": []
-}
