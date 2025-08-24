@@ -96,6 +96,11 @@ class TikaBot(commands.Bot):
         if ctx.valid:
             await self.invoke(ctx)
             return # Stop processing, it was a command.
+        
+        # Priority 7: AI Features (Mentions and Summaries are handled in the cog)
+        chatbot_cog = self.get_cog("Chatbot")
+        if chatbot_cog and await chatbot_cog.handle_mention(message):
+            return # Don't give XP for talking to the bot
 
         # Final Priority: Leveling System
         # If the message was not a command and not handled by any other system, grant XP.
