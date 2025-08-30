@@ -34,8 +34,8 @@ plugins:
   # The order plugins are loaded and their message handlers are prioritized.
   # Lower numbers run first.
   load_order:
-    - admin: 10
-    - automation: 20
-    - entertainment: 30
-    - community: 40
-    - user: 50
+    admin: 10
+    automation: 20
+    entertainment: 30
+    community: 40
+    user: 50
