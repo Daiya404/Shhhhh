@@ -1,0 +1,41 @@
+# --- config.yml ---
+
+# Core bot settings
+bot:
+  name: "Tika"
+  description: "A sassy, efficient Discord bot built with the PEAK architecture."
+
+# Feature defaults (can be overridden per guild via commands)
+features:
+  default_enabled:
+    - progression
+    - customization
+    - interactive_games
+    - quick_games
+    - message_automation
+    - chapel
+  default_disabled:
+    - ai_chat # Requires API key and additional setup
+
+# Performance settings
+performance:
+  cache_ttl: 300 # 5 minutes
+  auto_backup_interval: 3600 # 1 hour
+
+# Logging configuration
+logging:
+  level: INFO
+  file: "bot.log"
+  max_size_mb: 10
+  backup_count: 5
+
+# Plugin settings
+plugins:
+  # The order plugins are loaded and their message handlers are prioritized.
+  # Lower numbers run first.
+  load_order:
+    admin: 10
+    automation: 20
+    entertainment: 30
+    community: 40
+    user: 50
