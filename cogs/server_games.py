@@ -28,7 +28,8 @@ PERSONALITY = {
     "hangman_lose": "You lose. How disappointing. The word was **{word}**.",
     "hangman_already_guessed": "You already guessed that letter. Try to keep up.",
     "hangman_invalid": "That's not a valid letter. Try again.",
-    "not_in_game": "You're not in any game to resign from."
+    "not_in_game": "You're not in any game to resign from.",
+    "dm_opponent_required": "In DMs, you need to mention the opponent you want to challenge."
 }
 
 # --- Word List for Hangman ---
@@ -656,6 +657,8 @@ class ServerGames(commands.Cog):
     game_group = app_commands.Group(name="game", description="Play a game with another server member.")
 
     @game_group.command(name="hangman", description="Play a single-player game of Hangman.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def hangman(self, interaction: discord.Interaction):
         player = interaction.user
         
@@ -687,6 +690,8 @@ class ServerGames(commands.Cog):
             await interaction.response.send_message("An error occurred while starting the game. Please try again.", ephemeral=True)
 
     @game_group.command(name="resign", description="Resign from your current game.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def resign(self, interaction: discord.Interaction):
         player_id = interaction.user.id
         
@@ -704,8 +709,16 @@ class ServerGames(commands.Cog):
         # The resign functionality is handled within each game's view
         await interaction.response.send_message("Use the 'Resign' button in your active game to resign.", ephemeral=True)
 
-    async def _start_challenge(self, interaction: discord.Interaction, opponent: discord.Member, game_type: Literal["tictactoe", "connect4"]):
+    async def _start_challenge(self, interaction: discord.Interaction, opponent: Optional[discord.Member], game_type: Literal["tictactoe", "connect4"]):
         challenger = interaction.user
+        
+        # Handle DM context where opponent must be specified
+        if not interaction.guild and not opponent:
+            return await interaction.response.send_message(PERSONALITY["dm_opponent_required"], ephemeral=True)
+        
+        # If no opponent specified in guild, this shouldn't happen with proper command setup
+        if not opponent:
+            return await interaction.response.send_message("You need to specify an opponent.", ephemeral=True)
         
         # Validation checks
         error_msg = self._validate_challenge(challenger, opponent)
@@ -770,16 +783,22 @@ class ServerGames(commands.Cog):
 
     @game_group.command(name="tictactoe", description="Challenge someone to a game of Tic-Tac-Toe.")
     @app_commands.describe(opponent="The user you want to play against.")
-    async def tictactoe(self, interaction: discord.Interaction, opponent: discord.Member):
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    async def tictactoe(self, interaction: discord.Interaction, opponent: Optional[discord.Member] = None):
         await self._start_challenge(interaction, opponent, "tictactoe")
         
     @game_group.command(name="connect4", description="Challenge someone to a game of Connect 4.")
     @app_commands.describe(opponent="The user you want to play against.")
-    async def connect4(self, interaction: discord.Interaction, opponent: discord.Member):
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
+    async def connect4(self, interaction: discord.Interaction, opponent: Optional[discord.Member] = None):
         await self._start_challenge(interaction, opponent, "connect4")
 
     # Add commands to check and manage game states
     @app_commands.command(name="cleargame", description="[DEBUG] Force clear your game status if stuck.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def clear_game(self, interaction: discord.Interaction):
         if self._force_cleanup_player(interaction.user.id):
             await interaction.response.send_message("Your game status has been cleared.", ephemeral=True)
@@ -787,6 +806,8 @@ class ServerGames(commands.Cog):
             await interaction.response.send_message("You don't have an active game to clear.", ephemeral=True)
 
     @app_commands.command(name="gamestatus", description="[DEBUG] Check your current game status.")
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
     async def game_status(self, interaction: discord.Interaction):
         player_id = interaction.user.id
         if player_id in self.active_games:
@@ -797,6 +818,8 @@ class ServerGames(commands.Cog):
             
     @app_commands.command(name="clearallgames", description="[ADMIN] Clear all active games.")
     @app_commands.default_permissions(administrator=True)
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     async def clear_all_games(self, interaction: discord.Interaction):
         count = len(self.active_games)
         self.active_games.clear()

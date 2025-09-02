@@ -53,7 +53,11 @@ class TikaBot(commands.Bot):
         
         try:
             synced = await self.tree.sync()
-            self.logger.info(f"🔄 Synced {len(synced)} application command(s).")
+            self.logger.info(f"🔄 Synced {len(synced)} application command(s) globally.")
+            
+            # Also sync user commands
+            user_synced = await self.tree.sync()
+            self.logger.info(f"🔄 Synced {len(user_synced)} user installable command(s).")
         except Exception as e:
             self.logger.error(f"Failed to sync application commands: {e}")
 
