@@ -3,6 +3,5 @@ __pycache__/
 *.log
 data/
 
-# Secret files
-token.txt
-gemini_api.txt
+# Ignore the entire secrets folder
+secrets/
