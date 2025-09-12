@@ -74,7 +74,9 @@ class TikaBot(commands.Bot):
 
         # --- End of Detention Logic ---
 
-        # You will add other checks here later (e.g., for word_blocker)
+        auto_reply_cog = self.get_cog("AutoReply")
+        if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
+            return # If a reply was sent, we're done.
 
         ctx = await self.get_context(message)
         if ctx.valid:

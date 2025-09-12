@@ -24,5 +24,14 @@ PERSONALITY_RESPONSES = {
         "self_detention": "Don't be ridiculous. I'm not putting you in detention.",
         "bot_detention": "You can't put a bot in detention. It wouldn't learn anything.",
         "channel_perms_missing": "I can't work in that channel. I need permissions to Send Messages, Manage Messages (for pinning), and Add Reactions."
+    },
+    "auto_reply": {
+        "trigger_set": "Fine. If anyone says `{trigger}`, I'll reply with that. I hope it's not something stupid.",
+        "alt_added": "Another one? Okay, I've added `{alternative}` as an alternative for `{trigger}`.",
+        "trigger_removed": "Noted. I'll no longer reply to `{trigger}`.",
+        "trigger_not_found": "I can't find a trigger with that name. Try checking the list.",
+        "already_exists": "That trigger or alternative already exists. Pay attention.",
+        "list_empty": "There are no auto-replies set up for this server.",
+        "error_empty": "You can't set an empty trigger or alternative. Obviously."
     }
 }
