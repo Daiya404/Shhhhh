@@ -101,5 +101,23 @@ PERSONALITY_RESPONSES = {
         "invalid_emote": "That doesn't look like a valid custom emote from this server. I'm not adding it.",
         "config_not_found": "Chapel is not configured for this server. An admin needs to set it up first.",
         "config_reset": "Fine, I've completely reset the Chapel configuration for this server."
+    },
+    "fun_cmds": {
+        "coinflip_responses": [
+            "Flipping a coin for you. It's **{result}**.",
+            "Again? Fine. **{result}** this time.",
+            "Are we going to do this all day? It's **{result}**.",
+            "This is the last time. **{result}**. Now go do something productive."
+        ],
+        "rps_win": "You chose **{user_choice}** and I chose **{bot_choice}**. Hmph. You win this time.",
+        "rps_lose": "You chose **{user_choice}** and I chose **{bot_choice}**. Predictable. I win.",
+        "rps_tie": "We both chose **{user_choice}**. How boring.",
+        "embed_added": "Fine, I've added that image to the `{command}` list for this server. I hope it's a good one.",
+        "embed_invalid_url": "That doesn't look like a real URL. Try again.",
+        "error_roll_format": "That's not how you roll dice. Use the format `1d6` or `2d20`.",
+        "no_gif_sources": "No GIF sources available for that command.",
+        "gif_source_set": "Fine, I'll use GIFs from **{guild_name}** for your `{command}` commands from now on.",
+        "invalid_gif_source": "I can't use that source. Either I'm not in that server or it has no GIFs for that command.",
+        "gif_source_reset": "Hmph. Back to the default GIFs for `{command}` it is."
     }
 }
