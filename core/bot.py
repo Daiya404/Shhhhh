@@ -74,6 +74,10 @@ class TikaBot(commands.Bot):
 
         # --- End of Detention Logic ---
 
+        word_blocker_cog = self.get_cog("WordBlocker")
+        if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
+            return # If message was deleted, we're done.
+
         auto_reply_cog = self.get_cog("AutoReply")
         if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
             return # If a reply was sent, we're done.

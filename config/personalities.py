@@ -33,5 +33,14 @@ PERSONALITY_RESPONSES = {
         "already_exists": "That trigger or alternative already exists. Pay attention.",
         "list_empty": "There are no auto-replies set up for this server.",
         "error_empty": "You can't set an empty trigger or alternative. Obviously."
+    },
+    "word_blocker": {
+        "word_added": "Noted. I will now watch for that word.",
+        "word_removed": "Fine, I've removed that word from the blocklist.",
+        "already_blocked": "I'm already blocking that word. Pay attention.",
+        "not_blocked": "I wasn't blocking that word to begin with.",
+        "list_empty": "There are no words on the global blocklist.",
+        "user_list_empty": "No specific words are blocked for **{user}**.",
+        "channel_warning": "{user}, your message contained a blocked term and was deleted. Watch it."
     }
 }
