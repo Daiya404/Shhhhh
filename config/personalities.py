@@ -78,5 +78,22 @@ PERSONALITY_RESPONSES = {
         "invalid_time": "That doesn't look like a real time format. Use something like `1d`, `2h30m`, `tomorrow`, or `1 week`.",
         "delivery_dm": "Okay, I'll send your reminders and timers via **Direct Message** from now on.",
         "delivery_channel": "Got it. I'll send your reminders and timers publicly in the **Original Channel** from now on."
+    },
+    "custom_roles": {
+        "set_responses": [
+            "There, your role is set. Don't mess it up.",
+            "Changed it again? Fine. It's updated.",
+            "Are you sure about this one? Whatever, it's done.",
+            "Okay, this is the last time I'm changing it for a bit. Your role is updated. Now stop."
+        ],
+        "role_view": "You want to admire the role I made for you? Here are the details.",
+        "role_deleted": "Done. Your custom role has been deleted.",
+        "no_role": "You don't even have a custom role. Use `/role set` to make one first.",
+        "invalid_name": "That's a terrible name for a role. It has invalid characters or is too long. Pick something better.",
+        "invalid_color": "That's not a color. Use a real hex code, like `#A020F0`.",
+        "target_set": "Understood. I'll now place all new custom roles above the one you specified.",
+        "target_too_high": "I can't place roles above that one. It's higher than my own role. Pick something below me.",
+        "admin_cleanup": "Cleanup complete. Removed `{count}` orphaned role entries.",
+        "admin_no_cleanup": "I checked. There was nothing to clean up. Everything is already perfect, as expected."
     }
 }
