@@ -19,24 +19,18 @@ class AIChat(commands.Cog):
         feature_manager = self.bot.get_cog("FeatureManager")
         if feature_manager and not feature_manager.is_feature_enabled(interaction.guild_id, "ai_chat"):
             return await interaction.response.send_message("The AI Chat feature is disabled on this server.", ephemeral=True)
-
         if not self.gemini_service or not self.gemini_service.is_ready():
             return await interaction.response.send_message("My AI brain is offline. Try again later.", ephemeral=True)
 
         await interaction.response.defer()
         user_id = interaction.user.id
-        
-        # This command starts a NEW conversation
         self.conversation_history[user_id] = [{"role": "user", "parts": [message]}]
         
         async with interaction.channel.typing():
-            # --- THIS IS THE FIX ---
-            # We now pass BOTH the new message AND the history, as required.
             response_text = await self.gemini_service.generate_chat_response(
                 user_message=message,
                 conversation_history=self.conversation_history[user_id]
             )
-            # --- END OF FIX ---
 
         self.conversation_history[user_id].append({"role": "model", "parts": [response_text]})
         await interaction.followup.send(response_text)

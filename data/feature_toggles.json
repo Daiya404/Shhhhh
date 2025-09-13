@@ -1,6 +1,7 @@
 {
   "1414334870720741520": {
     "link_fixer": true,
-    "fun_commands": false
+    "fun_commands": false,
+    "word_game": true
   }
 }
