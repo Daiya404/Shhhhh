@@ -119,5 +119,28 @@ PERSONALITY_RESPONSES = {
         "gif_source_set": "Fine, I'll use GIFs from **{guild_name}** for your `{command}` commands from now on.",
         "invalid_gif_source": "I can't use that source. Either I'm not in that server or it has no GIFs for that command.",
         "gif_source_reset": "Hmph. Back to the default GIFs for `{command}` it is."
+    },
+    "server_games": {
+        "challenge_sent": "Hmph. {challenger} has challenged {opponent} to a game of **{game_name}**. Are you going to accept, {opponent}, or are you scared?",
+        "challenge_accepted": "Fine, the game is on. It's **{player}'s** turn to move.",
+        "challenge_declined": "Looks like {opponent} was too scared to play. How predictable.",
+        "challenge_timeout": "Well, {opponent} didn't respond. I guess we have our answer.",
+        "game_already_running": "You're already in a game. Finish it before you start another one.",
+        "opponent_in_game": "They're already busy with another game. Find someone else to bother.",
+        "not_your_turn": "It's not your turn. Don't be so impatient.",
+        "invalid_move": "You can't play there. Are you even paying attention to the board?",
+        "win_message": "The game is over. **{winner}** won. I guess that makes you the loser, {loser}.",
+        "draw_message": "A draw. How utterly boring. Neither of you could win.",
+        "game_timeout": "The game timed out because someone took too long. Pathetic.",
+        "game_resigned": "**{player}** resigned from the game. How disappointing. **{winner}** wins by default.",
+        "hangman_start": "Alright, I've thought of a word. Start guessing letters. You have {lives} wrong guesses before you lose.",
+        "hangman_win": "You actually guessed it. The word was **{word}**. I'm impressed... for once.",
+        "hangman_lose": "You lose. How disappointing. The word was **{word}**.",
+        "hangman_already_guessed": "You already guessed that letter. Try to keep up.",
+        "hangman_invalid": "That's not a valid letter. Try again.",
+        "not_in_game": "You're not in any game to resign from.",
+        "dm_opponent_required": "In DMs, you need to mention the opponent you want to challenge.",
+        "self_challenge": "You can't challenge yourself. Don't be ridiculous.",
+        "bot_challenge": "You can't challenge a bot. I'd win every time, and it would be boring."
     }
 }
