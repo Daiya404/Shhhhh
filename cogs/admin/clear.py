@@ -125,6 +125,14 @@ class Clear(commands.Cog):
         self.eat_start_points: dict[int, int] = {}
         self._message_matcher = MessageMatcher()
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the clear feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "clear_commands"):
+            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     async def cog_check(self, ctx: commands.Context) -> bool:
         """Universal check for prefix commands (!tika eat/end)."""
         if not ctx.guild: return False
@@ -179,6 +187,7 @@ class Clear(commands.Cog):
     @is_bot_admin()
     @app_commands.describe(amount="The number of messages to delete (1-100).", user="Optional: Filter to only delete messages from this user.")
     async def slash_clear(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
         try:
             check = (lambda m: m.author == user) if user else None
@@ -199,6 +208,7 @@ class Clear(commands.Cog):
         app_commands.Choice(name="Regex Pattern (advanced)", value="regex")
     ])
     async def clear_search(self, interaction: discord.Interaction, target: str, match_type: str = "contains", user: Optional[discord.Member] = None, limit: app_commands.Range[int, 1, 10000] = 1000):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
         try:
             matched_messages = await self._search_messages(interaction.channel, target, match_type, user, limit)

@@ -19,6 +19,14 @@ class CopyChapel(commands.Cog):
         self.settings_cache: Dict[str, Dict] = {}
         self.message_map_cache: Dict[str, Dict[str, int]] = {}
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the copy_chapel feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "copy_chapel"):
+            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         """Loads all Chapel data into memory when the cog is ready."""
@@ -88,6 +96,7 @@ class CopyChapel(commands.Cog):
                           channel: Optional[discord.TextChannel] = None, 
                           emote: Optional[str] = None, 
                           threshold: Optional[app_commands.Range[int, 1, 100]] = None):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
         guild_id = str(interaction.guild_id)
         

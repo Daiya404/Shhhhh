@@ -325,6 +325,14 @@ class ServerGames(commands.Cog):
         self.data_manager = self.bot.data_manager
         self.active_games_cache: Dict[str, Dict[str, str]] = {}
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the server_games feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "server_games"):
+            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         self.logger.info("Loading active games into memory...")
@@ -412,6 +420,7 @@ class ServerGames(commands.Cog):
         app_commands.Choice(name="Connect 4", value="connect4")
     ])
     async def play(self, interaction: discord.Interaction, game: str, opponent: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction): return
         if game == "hangman":
             await self._start_hangman(interaction)
         elif game in ["tictactoe", "connect4"]:

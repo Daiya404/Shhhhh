@@ -25,6 +25,14 @@ class Reminders(commands.Cog):
         
         self.check_reminders.start()
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the reminders feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "reminders"):
+            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         """Loads all reminder data into the caches when the cog is ready."""
@@ -85,6 +93,7 @@ class Reminders(commands.Cog):
         app_commands.Choice(name="Monthly", value="monthly")
     ])
     async def manage_reminders(self, interaction: discord.Interaction, action: str, when: Optional[str] = None, message: Optional[str] = None, reminder_id: Optional[str] = None, repeat: Optional[app_commands.Choice[str]] = None):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
 
         # --- SET LOGIC ---
@@ -145,6 +154,7 @@ class Reminders(commands.Cog):
     @app_commands.describe(location="DM (private) or the original channel (public).")
     @app_commands.choices(location=[app_commands.Choice(name="Direct Message (DM)", value="dm"), app_commands.Choice(name="Original Channel", value="channel")])
     async def set_delivery(self, interaction: discord.Interaction, location: app_commands.Choice[str]):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
         guild_id, user_id = str(interaction.guild_id), str(interaction.user.id)
         remind_in_channel = (location.value == "channel")
@@ -159,6 +169,7 @@ class Reminders(commands.Cog):
     @app_commands.describe(reminder_id="The full ID of the reminder to delete.")
     @is_bot_admin()
     async def admin_delete(self, interaction: discord.Interaction, reminder_id: str):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
         item_to_delete = next((r for r in self.reminders_cache if r.get("id") == reminder_id), None)
         if not item_to_delete:

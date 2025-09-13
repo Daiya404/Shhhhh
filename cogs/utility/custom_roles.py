@@ -23,11 +23,20 @@ class CustomRoles(commands.Cog):
         self._cache_ttl = 300
         self._last_cache_update: Dict[str, float] = {}
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the custom_roles feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "custom_roles"):
+            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     # --- User-Facing Commands ---
 
     @app_commands.command(name="personal-role", description="Create or update your personal custom role.")
     @app_commands.describe(name="The name for your role.", color="The color in hex format (e.g., #A020F0).")
     async def personal_role(self, interaction: discord.Interaction, name: str, color: str):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
 
         if not self._validate_role_name(name):
@@ -71,6 +80,7 @@ class CustomRoles(commands.Cog):
     @app_commands.command(name="custom-roles-list", description="View your custom role or another user's.")
     @app_commands.describe(user="The user whose role you want to view (optional).")
     async def custom_roles_list(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction): return
         target_user = user or interaction.user
         await interaction.response.defer(ephemeral=True)
         role = await self._get_user_role(target_user)
@@ -100,6 +110,7 @@ class CustomRoles(commands.Cog):
         app_commands.Choice(name="Cleanup Orphaned Roles", value="cleanup"),
     ])
     async def custom_roles_admin(self, interaction: discord.Interaction, action: str, role: Optional[discord.Role] = None):
+        if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
 
         # --- Set Target Logic ---

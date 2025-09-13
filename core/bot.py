@@ -55,36 +55,46 @@ class TikaBot(commands.Bot):
         self.logger.info(f"🔄 Synced {len(synced)} application command(s) globally.")
 
     async def on_message(self, message: discord.Message):
-        """The Traffic Cop: Checks every message and enforces high-priority rules."""
-        if message.author.bot:
+        """The Traffic Cop: Checks every message and respects feature toggles."""
+        if message.author.bot or not message.guild:
             return
 
-        # Priority 1: Detention
-        detention_cog = self.get_cog("Detention")
-        if detention_cog and await detention_cog.is_user_detained(message):
-            await detention_cog.handle_detention_message(message)
-            return
+        # Get the FeatureManager cog to check settings
+        feature_manager_cog = self.get_cog("FeatureManager")
+        if not feature_manager_cog: # Should not happen if loaded correctly
+            return 
 
-        # Priority 2: Word Blocker
-        word_blocker_cog = self.get_cog("WordBlocker")
-        if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
-            return
+        # Priority 1: Detention (Use 'detention_system' key)
+        if feature_manager_cog.is_feature_enabled(message.guild.id, "detention_system"):
+            detention_cog = self.get_cog("Detention")
+            if detention_cog and await detention_cog.is_user_detained(message):
+                await detention_cog.handle_detention_message(message)
+                return
 
-        # Priority 3: Link Fixer (Does not stop processing)
-        link_fixer_cog = self.get_cog("LinkFixer")
-        if link_fixer_cog:
-            await link_fixer_cog.check_and_fix_link(message)
+        # Priority 2: Word Blocker (Check if enabled)
+        if feature_manager_cog.is_feature_enabled(message.guild.id, "word_blocker"):
+            word_blocker_cog = self.get_cog("WordBlocker")
+            if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
+                return
 
-        # Priority 4: Auto Reply
-        auto_reply_cog = self.get_cog("AutoReply")
-        if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
-            return
+        # Priority 3: Link Fixer (Check if enabled)
+        if feature_manager_cog.is_feature_enabled(message.guild.id, "link_fixer"):
+            link_fixer_cog = self.get_cog("LinkFixer")
+            if link_fixer_cog:
+                await link_fixer_cog.check_and_fix_link(message)
 
-        # Priority 5: Word Game
-        word_game_cog = self.get_cog("WordGame")
-        if word_game_cog and await word_game_cog.check_word_game_message(message):
-            return # If the message was part of the game, stop here.
+        # Priority 4: Auto Reply (Check if enabled)
+        if feature_manager_cog.is_feature_enabled(message.guild.id, "auto_reply"):
+            auto_reply_cog = self.get_cog("AutoReply")
+            if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
+                return
 
+        # Priority 5: Word Game (Use 'word_game' key)
+        if feature_manager_cog.is_feature_enabled(message.guild.id, "word_game"):
+            word_game_cog = self.get_cog("WordGame")
+            if word_game_cog and await word_game_cog.check_word_game_message(message):
+                return
+        
         ctx = await self.get_context(message)
         if ctx.valid:
             await self.invoke(ctx)
