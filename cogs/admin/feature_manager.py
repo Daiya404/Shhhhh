@@ -26,6 +26,8 @@ AVAILABLE_FEATURES = [
     "copy_chapel",
     "custom_roles",
     "reminders",
+    # AI
+    "ai_chat"
 ]
 
 class FeatureManager(commands.Cog):
