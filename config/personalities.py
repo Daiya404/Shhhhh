@@ -42,5 +42,9 @@ PERSONALITY_RESPONSES = {
         "list_empty": "There are no words on the global blocklist.",
         "user_list_empty": "No specific words are blocked for **{user}**.",
         "channel_warning": "{user}, your message contained a blocked term and was deleted. Watch it."
+    },
+    "link_fixer": {
+        "personal_opt_out": "Alright, I'll leave your links alone from now on. Your personal link fixing is **OFF**.",
+        "personal_opt_in": "Hmph. So you need my help after all? Fine, I'll fix your links again. Your personal link fixing is **ON**."
     }
 }
