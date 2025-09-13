@@ -63,5 +63,20 @@ PERSONALITY_RESPONSES = {
         "search_cancelled": "Search and delete operation cancelled.",
         "search_timeout": "Confirmation timed out. Operation cancelled.",
         "invalid_regex": "Invalid regex pattern: {error}"
+    },
+    "reminders": {
+        "reminder_set": "Fine, I'll remember that for you. It's not like I have anything better to do. Your reminder ID is `{id}`.",
+        "reminder_dm_title": "Hey. You told me to remind you about this.",
+        "reminder_channel_ping": "{user}, I tried to DM you, but you've got them blocked. You told me to remind you about this.",
+        "reminder_channel_title": "A reminder for {user}!",
+        "list_empty": "You have no active reminders.", # Simplified
+        "list_title": "Your Active Reminders", # Simplified
+        "deleted": "Okay, I've forgotten about that reminder.", # Simplified
+        "admin_deleted": "Done. I have deleted that reminder.",
+        "delete_not_found": "I can't find a reminder with that ID. Are you sure you typed it correctly?", # Simplified
+        "delete_not_yours": "That's not your reminder to delete. Mind your own business.", # Simplified
+        "invalid_time": "That doesn't look like a real time format. Use something like `1d`, `2h30m`, `tomorrow`, or `1 week`.",
+        "delivery_dm": "Okay, I'll send your reminders and timers via **Direct Message** from now on.",
+        "delivery_channel": "Got it. I'll send your reminders and timers publicly in the **Original Channel** from now on."
     }
 }
