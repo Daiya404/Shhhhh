@@ -95,5 +95,11 @@ PERSONALITY_RESPONSES = {
         "target_too_high": "I can't place roles above that one. It's higher than my own role. Pick something below me.",
         "admin_cleanup": "Cleanup complete. Removed `{count}` orphaned role entries.",
         "admin_no_cleanup": "I checked. There was nothing to clean up. Everything is already perfect, as expected."
+    },
+    "copy_chapel": {
+        "setup_success": "Done. Chapel is now configured. I'll watch for `{emote}` reactions in this server.",
+        "invalid_emote": "That doesn't look like a valid custom emote from this server. I'm not adding it.",
+        "config_not_found": "Chapel is not configured for this server. An admin needs to set it up first.",
+        "config_reset": "Fine, I've completely reset the Chapel configuration for this server."
     }
 }
