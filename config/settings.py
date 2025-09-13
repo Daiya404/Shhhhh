@@ -50,5 +50,6 @@ class Settings:
     DATA_DIR: Path = BASE_DIR / "data"
     LOGS_DIR: Path = BASE_DIR / "logs"
     COGS_DIR: Path = BASE_DIR / "cogs"
+    ASSETS_DIR: Path = BASE_DIR / "assets"
 
 settings = Settings()

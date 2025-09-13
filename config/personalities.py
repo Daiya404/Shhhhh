@@ -142,5 +142,14 @@ PERSONALITY_RESPONSES = {
         "dm_opponent_required": "In DMs, you need to mention the opponent you want to challenge.",
         "self_challenge": "You can't challenge yourself. Don't be ridiculous.",
         "bot_challenge": "You can't challenge a bot. I'd win every time, and it would be boring."
+    },
+    "word_game": {
+        "channel_set": "Okay, the Word Chain game is now locked to {channel}. Try not to make a mess.",
+        "already_active": "A game is already active in the designated channel. Don't be impatient.",
+        "start_success": "Fine, I've started a new round. The first letter is **{letter}**. Go.",
+        "no_scores": "No one has scored any points yet. How utterly predictable.",
+        "reset_confirm": "⚠️ **Are you sure?** This will wipe all scores and the entire used word history. This can't be undone.",
+        "reset_success": "Done. Everything is gone. I hope you're happy.",
+        "reset_cancel": "Reset cancelled. As I thought."
     }
 }

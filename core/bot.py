@@ -80,6 +80,11 @@ class TikaBot(commands.Bot):
         if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
             return
 
+        # Priority 5: Word Game
+        word_game_cog = self.get_cog("WordGame")
+        if word_game_cog and await word_game_cog.check_word_game_message(message):
+            return # If the message was part of the game, stop here.
+
         ctx = await self.get_context(message)
         if ctx.valid:
             await self.invoke(ctx)
