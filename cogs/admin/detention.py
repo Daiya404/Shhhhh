@@ -7,7 +7,7 @@ import time
 from typing import Optional
 
 from config.personalities import PERSONALITY_RESPONSES
-from cogs.admin.bot_admin import BotAdmin
+from cogs.admin.bot_admin import is_bot_admin
 
 class Detention(commands.Cog):
     def __init__(self, bot):
@@ -59,7 +59,7 @@ class Detention(commands.Cog):
     # --- CORRECTED User Management Command ---
     @app_commands.command(name="detention", description="Place a user in detention or release them.")
     @app_commands.default_permissions(administrator=True)
-    @BotAdmin.is_bot_admin()
+    @is_bot_admin()
     @app_commands.describe(action="Start a new detention or release an existing one.", user="The user to manage.", sentence="The sentence to type (required for 'start').", repetitions="How many times to type it (required for 'start').")
     @app_commands.choices(action=[app_commands.Choice(name="Start", value="start"), app_commands.Choice(name="Release", value="release")])
     async def manage_detention(self, interaction: discord.Interaction, action: str, user: discord.Member, sentence: Optional[str] = None, repetitions: Optional[app_commands.Range[int, 1, 100]] = None):
@@ -115,7 +115,7 @@ class Detention(commands.Cog):
     # --- CORRECTED Configuration Command ---
     @app_commands.command(name="detention-settings", description="Configure the detention channel or list detained users.")
     @app_commands.default_permissions(administrator=True)
-    @BotAdmin.is_bot_admin()
+    @is_bot_admin()
     @app_commands.describe(action="Set the channel or list offenders.", channel="The channel to use (required for 'set-channel').")
     @app_commands.choices(action=[app_commands.Choice(name="Set Channel", value="set-channel"), app_commands.Choice(name="List", value="list")])
     async def config_detention(self, interaction: discord.Interaction, action: str, channel: Optional[discord.TextChannel] = None):

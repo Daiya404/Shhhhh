@@ -46,5 +46,22 @@ PERSONALITY_RESPONSES = {
     "link_fixer": {
         "personal_opt_out": "Alright, I'll leave your links alone from now on. Your personal link fixing is **OFF**.",
         "personal_opt_in": "Hmph. So you need my help after all? Fine, I'll fix your links again. Your personal link fixing is **ON**."
+    },
+    "clear": {
+        "clear_success": "Done. I've deleted `{count}` messages. The channel looks much cleaner now.",
+        "clear_user_success": "Alright, I got rid of `{count}` of {user}'s messages. Happy now?",
+        "eat_start_set": "Start point set. Now reply to the end message with `!tika end`.",
+        "eat_success": "Done. I ate `{count}` messages between the two points. Hope they were tasty.",
+        "end_no_start": "I can't end what hasn't been started. Use `!tika eat` by replying to a message first.",
+        "must_reply": "You have to reply to a message for that to work. Obviously.",
+        "error_forbidden": "I can't do that. I'm missing the 'Manage Messages' permission.",
+        "error_general": "Something went wrong. The messages might be too old, or Discord is just having a moment.",
+        "error_not_found": "Couldn't find one of the messages you replied to. Starting over.",
+        "search_started": "Searching for messages containing: `{target}`. This might take a moment...",
+        "search_completed": "Found and deleted `{count}` messages containing: `{target}`",
+        "search_no_matches": "No messages found containing: `{target}`. Nothing to delete.",
+        "search_cancelled": "Search and delete operation cancelled.",
+        "search_timeout": "Confirmation timed out. Operation cancelled.",
+        "invalid_regex": "Invalid regex pattern: {error}"
     }
 }

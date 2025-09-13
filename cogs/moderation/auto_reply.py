@@ -8,7 +8,7 @@ import time
 from typing import Optional
 
 from config.personalities import PERSONALITY_RESPONSES
-from cogs.admin.bot_admin import BotAdmin
+from cogs.admin.bot_admin import is_bot_admin
 
 class AutoReply(commands.Cog):
     def __init__(self, bot):
@@ -77,7 +77,7 @@ class AutoReply(commands.Cog):
 
     @app_commands.command(name="autoreply", description="Add or remove an auto-reply trigger.")
     @app_commands.default_permissions(administrator=True)
-    @BotAdmin.is_bot_admin()
+    @is_bot_admin()
     @app_commands.describe(action="Add a new trigger or remove an existing one.", trigger="The word/phrase to listen for.", reply="The reply text or URL (only needed for 'add').")
     @app_commands.choices(action=[app_commands.Choice(name="Add", value="add"), app_commands.Choice(name="Remove", value="remove")])
     async def manage_autoreply(self, interaction: discord.Interaction, action: str, trigger: str, reply: Optional[str] = None):
@@ -104,7 +104,7 @@ class AutoReply(commands.Cog):
 
     @app_commands.command(name="autoreply-alt", description="Add multiple alternative words to an existing trigger.")
     @app_commands.default_permissions(administrator=True)
-    @BotAdmin.is_bot_admin()
+    @is_bot_admin()
     @app_commands.describe(main_trigger="The trigger to add alternatives for.", alternatives="The new alternative words, separated by spaces.")
     async def add_alts_bulk(self, interaction: discord.Interaction, main_trigger: str, alternatives: str):
         await interaction.response.defer()
