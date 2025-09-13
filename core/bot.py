@@ -78,6 +78,10 @@ class TikaBot(commands.Bot):
         if word_blocker_cog and await word_blocker_cog.check_and_handle_message(message):
             return # If message was deleted, we're done.
 
+        link_fixer_cog = self.get_cog("LinkFixer")
+        if link_fixer_cog:
+            await link_fixer_cog.check_and_fix_link(message)
+
         auto_reply_cog = self.get_cog("AutoReply")
         if auto_reply_cog and await auto_reply_cog.check_for_reply(message):
             return # If a reply was sent, we're done.
