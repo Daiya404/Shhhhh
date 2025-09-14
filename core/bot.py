@@ -1,4 +1,5 @@
 # core/bot.py
+from typing import Optional
 import discord
 from discord.ext import commands
 import logging
@@ -7,12 +8,16 @@ import aiohttp
 import asyncio
 import random
 
+from polars import datetime
+
 from config.settings import Settings
+from services.github_backup_service import GitHubBackupService
 from services.data_manager import DataManager
 from services.gemini_service import GeminiService
 from services.knowledge_service import KnowledgeService
 from services.relationship_manager import RelationshipManager
 from services.web_search_service import WebSearchService
+from services.resource_monitor import ResourceMonitor
 
 class TikaBot(commands.Bot):
     def __init__(self, settings: Settings):
@@ -37,9 +42,13 @@ class TikaBot(commands.Bot):
             relationship_manager=self.relationship_manager
         )
         self.knowledge_service = KnowledgeService(self.data_manager, self.gemini_service)
+
+        self.backup_service = GitHubBackupService(self.settings)
+        self.resource_monitor = ResourceMonitor()
         
         # Bot state tracking
         self.command_usage = defaultdict(lambda: defaultdict(list))
+        self.start_time: Optional[datetime] = None
         self.start_time = None
         self.last_message_times = {}  # Track when users last messaged
         self.typing_delays = {}  # Add realistic typing delays

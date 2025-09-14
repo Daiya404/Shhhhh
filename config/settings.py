@@ -43,6 +43,10 @@ class Settings:
     TOKEN: str = _load_key_from_file("token.txt")
     GEMINI_API_KEY: str = _load_key_from_file("gemini_api.txt")
     
+    # GitHub Backup Configuration
+    GITHUB_TOKEN: str = _load_key_from_file("github_token.txt")
+    GITHUB_REPO: str = _load_key_from_file("github_repo.txt")
+    
     # The rest of the settings remain the same
     COMMAND_PREFIX: tuple = ("!tika ", "!Tika ")
     
