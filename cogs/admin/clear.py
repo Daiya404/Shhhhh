@@ -187,7 +187,7 @@ class Clear(commands.Cog):
         if not await self._is_feature_enabled(interaction): return
         await interaction.response.defer(ephemeral=True)
         try:
-            check = (lambda m: m.author == user) if user else None
+            check = (lambda m: m.author == user) if user else (lambda m: True)
             deleted_messages = await interaction.channel.purge(limit=amount, check=check, bulk=True)
             response = self.personality["clear_user_success"].format(count=len(deleted_messages), user=user.mention) if user else self.personality["clear_success"].format(count=len(deleted_messages))
             await interaction.followup.send(response)
