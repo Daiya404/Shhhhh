@@ -1,18 +1,10 @@
 {
-  "1377250843858046986": {
-    "target_role_ids": [
-      1377250844180877334
-    ],
-    "detention_channel_id": 1400843330279047380,
-    "word_game_channel_id": 1377250845338501261,
+  "1414334870720741520": {
     "chapel_config": {
-      "channel_id": 1377250844709490746,
-      "emote": "\u2728",
-      "emote_text": "<:KMS:1407823046303027333>",
-      "threshold": 2
-    }
-  },
-  "932255513893290024": {
-    "detention_channel_id": 1400910784393117797
+      "channel_id": 1414334872352329746,
+      "emote": "✨",
+      "threshold": 1
+    },
+    "word_game_channel_id": 1414334873589514329
   }
 }
