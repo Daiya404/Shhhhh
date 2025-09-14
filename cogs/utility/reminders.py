@@ -50,8 +50,6 @@ class Reminders(commands.Cog):
     async def check_reminders(self):
         """Optimized loop that operates only on the in-memory cache."""
         now = datetime.now(timezone.utc).timestamp()
-        
-        # Using list comprehensions on the cache is extremely fast
         due = [r for r in self.reminders_cache if r.get("due_timestamp", 0) <= now]
         if not due:
             return
@@ -73,7 +71,7 @@ class Reminders(commands.Cog):
     async def before_check_reminders(self):
         await self.bot.wait_until_ready()
 
-    # --- NEW CONSOLIDATED COMMAND ---
+    # --- NEW COMMAND ---
     @app_commands.command(name="remind", description="Manage your reminders.")
     @app_commands.describe(
         action="What you want to do.",
@@ -149,7 +147,7 @@ class Reminders(commands.Cog):
         choices = [app_commands.Choice(name=f"ID: {r['id']} | {r['message'][:50]}{'...' if len(r['message']) > 50 else ''}", value=r['id']) for r in user_items if current.lower() in r['id'].lower() or current.lower() in r['message'].lower()]
         return choices[:25]
 
-    # --- Settings and Admin Commands (mostly unchanged, but optimized) ---
+    # --- Settings and Admin Commands ---
     @app_commands.command(name="remind-settings", description="Choose where your reminders are sent.")
     @app_commands.describe(location="DM (private) or the original channel (public).")
     @app_commands.choices(location=[app_commands.Choice(name="Direct Message (DM)", value="dm"), app_commands.Choice(name="Original Channel", value="channel")])
@@ -208,7 +206,6 @@ class Reminders(commands.Cog):
                     await channel.send(self.personality["reminder_channel_ping"].format(user=user.mention), embed=embed)
 
     def _create_next_occurrence(self, old_reminder: dict) -> Optional[dict]:
-        # This logic is self-contained and correct.
         interval, now = old_reminder.get("repeat_interval"), datetime.now(timezone.utc)
         delta = None
         if interval == "daily": delta = timedelta(days=1)
@@ -220,7 +217,6 @@ class Reminders(commands.Cog):
         return new_reminder
 
     def _parse_time(self, time_str: str) -> Optional[timedelta]:
-        # This logic is self-contained and correct.
         time_str = time_str.lower().strip()
         if time_str == "tomorrow": return timedelta(days=1)
         total_seconds = 0

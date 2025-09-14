@@ -147,7 +147,7 @@ class CustomRoles(commands.Cog):
             await self.data_manager.save_data("user_roles", user_roles_data)
             await interaction.followup.send(self.personality["admin_cleanup"].format(count=len(to_remove)))
 
-    # --- Helper & Logic Methods (Optimized) ---
+    # --- Helper & Logic Methods ---
     async def _get_user_role(self, user: discord.Member) -> Optional[discord.Role]:
         user_roles_data = await self.data_manager.get_data("user_roles")
         role_id = user_roles_data.get(str(user.guild.id), {}).get(str(user.id), {}).get("role_id")

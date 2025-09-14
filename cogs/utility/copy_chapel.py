@@ -188,7 +188,7 @@ class CopyChapel(commands.Cog):
             guild_message_map.pop(message_id_str, None)
             await self.data_manager.save_data("chapel_message_map", self.message_map_cache)
 
-    # --- YOUR ORIGINAL, PREFERRED EMBED LOGIC ---
+    # --- EMBED LOGIC ---
     def _create_chapel_embed(self, message: discord.Message, emoji: str, count: int) -> discord.Embed:
         embed = discord.Embed(color=0x5865F2, timestamp=message.created_at)
         embed.set_author(name=message.author.display_name, icon_url=message.author.display_avatar.url)
@@ -211,7 +211,6 @@ class CopyChapel(commands.Cog):
         if image_url:
             embed.set_image(url=image_url)
 
-        # This is the clickable footer format from your original design.
         embed.add_field(
             name="\u200b", # Zero-width space
             value=f"[#{message.channel.name}]({message.jump_url}) | {emoji} {count}"
