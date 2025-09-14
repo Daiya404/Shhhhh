@@ -52,7 +52,7 @@ class ProactiveAI(commands.Cog):
         self.channel_activity[channel_id].append({
             'time': now,
             'author': message.author.display_name,
-            'content': message.clean_content[:100],  # Truncate for memory
+            'content': message.clean_content[:100],  # memory
             'has_question': '?' in message.content,
             'mentions_tika': self.bot.user.mentioned_in(message)
         })
@@ -329,8 +329,6 @@ class ProactiveAI(commands.Cog):
 
     async def _test_proactive(self, interaction: discord.Interaction, guild_settings: dict):
         """Test proactive AI by generating a comment on recent messages."""
-        # --- THIS IS THE FIX ---
-        # We send an initial public message first, which establishes a response.
         await interaction.response.send_message("🤔 Analyzing conversation in the channel...", ephemeral=True)
         
         if not self.gemini_service.is_ready():
@@ -353,7 +351,6 @@ class ProactiveAI(commands.Cog):
             
             comment = await self.gemini_service.generate_proactive_comment(messages)
             
-            # Now we can safely edit the "Analyzing..." message with the final result.
             if comment:
                 embed = discord.Embed(title="🧪 Test Proactive Comment", description=f"Based on recent conversation in {channel.mention}:", color=discord.Color.blue())
                 embed.add_field(name="Generated Comment:", value=f'"{comment}"', inline=False)

@@ -10,7 +10,7 @@ from typing import Dict, List, Literal, Optional
 from config.personalities import PERSONALITY_RESPONSES
 from cogs.admin.bot_admin import is_bot_admin
 
-# --- Word/Art Assets for Hangman (self-contained) ---
+# --- Word/Art Assets for Hangman ---
 HANGMAN_WORDS = ["algorithm", "binary", "boolean", "cache", "compiler", "database", "debug", "encryption", "firewall", "function", "hardware", "interface", "javascript", "keyboard", "loop", "malware", "network", "object", "pixel", "protocol", "python", "query", "recursive", "router", "server", "software", "storage", "syntax", "variable", "virtual", "anime", "manga", "character", "senpai", "waifu", "isekai", "shonen", "shojo", "tsundere", "yandere"]
 HANGMAN_PICS = ['```\n +---+\n |   |\n     |\n     |\n     |\n     |\n=========\n```', '```\n +---+\n |   |\n O   |\n     |\n     |\n     |\n=========\n```', '```\n +---+\n |   |\n O   |\n |   |\n     |\n     |\n=========\n```', '```\n +---+\n |   |\n O   |\n/|   |\n     |\n     |\n=========\n```', '```\n +---+\n |   |\n O   |\n/|\\  |\n     |\n     |\n=========\n```', '```\n +---+\n |   |\n O   |\n/|\\  |\n/    |\n     |\n=========\n```', '```\n +---+\n |   |\n O   |\n/|\\  |\n/ \\  |\n     |\n=========\n```']
 

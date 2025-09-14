@@ -3,8 +3,6 @@ import logging
 from typing import Dict, List
 import aiohttp
 from bs4 import BeautifulSoup
-import asyncio
-
 class KnowledgeService:
     def __init__(self, data_manager, gemini_service):
         self.logger = logging.getLogger(__name__)

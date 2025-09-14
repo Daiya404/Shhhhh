@@ -8,8 +8,6 @@ from typing import Dict, Optional
 from config.personalities import PERSONALITY_RESPONSES
 from cogs.admin.bot_admin import is_bot_admin
 
-# We will define the available features here for now.
-# In the future, this could be loaded from a config file.
 AVAILABLE_FEATURES = [
     # Admin
     "clear_commands",       # /clear and /clearsearch

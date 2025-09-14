@@ -11,8 +11,6 @@ class PerformanceMonitor(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.logger = logging.getLogger(__name__)
-        # We will add a personality for this later
-        # self.personality = PERSONALITY_RESPONSES["performance"]
         self.resource_monitor = self.bot.resource_monitor
 
     @app_commands.command(name="performance", description="[Admin] Check my current performance and resource usage.")
@@ -54,7 +52,6 @@ class PerformanceMonitor(commands.Cog):
         await interaction.followup.send(embed=embed)
 
 async def setup(bot):
-    # Only load this cog if the bot has the ResourceMonitor service initialized
     if hasattr(bot, 'resource_monitor'):
         await bot.add_cog(PerformanceMonitor(bot))
     else:

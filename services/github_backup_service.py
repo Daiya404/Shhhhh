@@ -10,9 +10,6 @@ class GitHubBackupService:
     def __init__(self, settings):
         self.logger = logging.getLogger(__name__)
         self.settings = settings
-        # Add these to your settings file:
-        # GITHUB_TOKEN = "your_personal_access_token" 
-        # GITHUB_REPO = "username/backup-repo-name"
         self.token = getattr(settings, 'GITHUB_TOKEN', None)
         self.repo = getattr(settings, 'GITHUB_REPO', None)
         self.base_url = "https://api.github.com"

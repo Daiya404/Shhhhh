@@ -108,8 +108,6 @@ class WordBlocker(commands.Cog):
 
     # --- Public Command to List Words ---
     @app_commands.command(name="blockword-list", description="List globally or user-specifically blocked words.")
-    # REMOVED: @app_commands.default_permissions(administrator=True)
-    # REMOVED: @BotAdmin.is_bot_admin()
     @app_commands.describe(user="The user whose list you want to see (optional).")
     async def list_blockwords(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
         # List is sensitive, so it's always ephemeral (private).

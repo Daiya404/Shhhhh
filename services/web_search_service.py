@@ -5,7 +5,7 @@ from ddgs import DDGS # Import from the correct ddgs library
 
 class WebSearchService:
     def __init__(self, session):
-        # The session is not used by this library, but we keep it for consistency.
+        # The session is not used by this library, but this shit breaks without it
         self.logger = logging.getLogger(__name__)
 
     def is_ready(self) -> bool:
@@ -14,9 +14,6 @@ class WebSearchService:
     async def search(self, query: str) -> Optional[str]:
         self.logger.info(f"Performing DuckDuckGo search for: {query}")
         try:
-            # --- THIS IS THE FIX ---
-            # 1. Use `DDGS().atext()` which is the correct ASYNC method.
-            # 2. `atext` returns an async generator, so we use a list comprehension to gather the results.
             results: List[Dict] = [r async for r in DDGS().atext(query, max_results=3)]
             
             if not results:

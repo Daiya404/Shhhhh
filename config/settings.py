@@ -10,8 +10,6 @@ def _load_key_from_file(filename: str) -> str:
     Loads a key from a file within the 'secrets' directory, which is
     located in the project's root folder.
     """
-    # Define the base directory as the root of the project
-    # __file__ is config/settings.py -> .parent is config/ -> .parent is the project root
     base_dir = Path(__file__).resolve().parent.parent
     
     # Correctly build the path to the secrets folder
@@ -23,9 +21,8 @@ def _load_key_from_file(filename: str) -> str:
     # print(f"Attempting to read key from: {file_path}")
     
     if not file_path.exists():
-        # Make the error message more helpful
         logger.warning(f"SECRET FILE NOT FOUND: Could not find '{file_path}'. Make sure it exists.")
-        # Create the secrets folder if it's missing, to help the user.
+        # Create the secrets folder if it doesn't exist
         if not secrets_dir.exists():
             logger.info(f"Creating missing directory: {secrets_dir}")
             secrets_dir.mkdir()

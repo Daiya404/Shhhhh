@@ -73,7 +73,7 @@ class AutoReply(commands.Cog):
                 return True
         return False
 
-    # --- Commands (No changes needed below this line) ---
+    # --- Commands ---
 
     @app_commands.command(name="autoreply", description="Add or remove an auto-reply trigger.")
     @app_commands.default_permissions(administrator=True)

@@ -7,7 +7,7 @@ import logging
 import re
 from typing import Dict, Optional, Union
 
-from .bot_admin import BotAdmin
+from cogs.admin.bot_admin import is_bot_admin
 
 # --- Personality Responses ---
 PERSONALITY = {
@@ -288,7 +288,7 @@ class CopyChapel(commands.Cog):
     async def _is_bot_admin_fallback(self, user_id: int) -> bool:
         """Fallback admin check if BotAdmin is not available"""
         try:
-            return await BotAdmin.is_bot_admin_check(user_id)
+            return await is_bot_admin_check(user_id)
         except:
             return False
 

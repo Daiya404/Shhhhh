@@ -14,8 +14,6 @@ def setup_logging():
     
     formatter = logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s')
     
-    # --- START OF CHANGES ---
-    
     # 1. Ensure the main logs directory exists.
     log_dir = settings.LOGS_DIR
     log_dir.mkdir(exist_ok=True)
@@ -30,7 +28,6 @@ def setup_logging():
         encoding='utf-8', 
         mode='w'
     )
-    # --- END OF CHANGES ---
     
     file_handler.setFormatter(formatter)
     

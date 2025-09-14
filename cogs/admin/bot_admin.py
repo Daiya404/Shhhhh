@@ -53,7 +53,7 @@ class BotAdmin(commands.Cog):
         self.personality = PERSONALITY_RESPONSES["bot_admin"]
         self.data_manager = self.bot.data_manager
 
-    # --- SIMPLIFIED AND CORRECTED PREFIX COMMAND CHECK ---
+    # --- PREFIX COMMAND CHECK ---
     async def check_prefix_command(self, ctx: commands.Context) -> bool:
         """The core logic for checking if a user is a bot admin for prefix commands."""
         
@@ -77,7 +77,6 @@ class BotAdmin(commands.Cog):
         app_commands.Choice(name="List", value="list"),
     ])
     async def manage_admins(self, interaction: discord.Interaction, action: str, user: Optional[discord.Member] = None):
-        # This command is correct.
         if action in ["add", "remove"] and not user:
             return await interaction.response.send_message("You must specify a user for that action.", ephemeral=True)
 

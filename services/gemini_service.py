@@ -13,8 +13,6 @@ class GeminiService:
     def __init__(self, api_key: str, web_search_service: 'WebSearchService', relationship_manager: 'RelationshipManager'):
         self.logger = logging.getLogger(__name__)
         self.web_search_service = web_search_service
-        # --- THIS IS THE CHANGE ---
-        # Inject the new relationship manager
         self.relationship_manager = relationship_manager
         
         try:

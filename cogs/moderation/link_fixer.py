@@ -61,7 +61,7 @@ class LinkFixer(commands.Cog):
                     link_data = await website_class.get_links(match, session=self.bot.http_session)
                     if link_data:
                         part = ""
-                        # --- CORRECTED FORMATTING WITH NON-EMBEDDING LINKS ---
+                        # --- FORMATTING WITH NON-EMBEDDING LINKS ---
 
                         # Case 1: API-based fix (like Instagram/EmbedEZ)
                         if link_data.get("fixer_name"):

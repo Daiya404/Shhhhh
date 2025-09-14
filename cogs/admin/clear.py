@@ -9,11 +9,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Callable
 
 from config.personalities import PERSONALITY_RESPONSES
-# Correctly import the standalone decorator function
 from cogs.admin.bot_admin import is_bot_admin
 
-# --- Helper Classes (self-contained, no changes needed from original) ---
-
+# --- Helper Classes ---
 class SearchConfirmationView(discord.ui.View):
     __slots__ = ('messages_to_delete', 'target', 'confirmed', 'personality')
     
@@ -142,7 +140,6 @@ class Clear(commands.Cog):
             self.logger.warning("BotAdmin cog not found for prefix command check.")
             return False
         
-        # This now calls the simplified, correct method.
         return await admin_cog.check_prefix_command(ctx)
 
     @staticmethod

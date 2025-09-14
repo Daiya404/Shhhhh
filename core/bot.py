@@ -146,7 +146,7 @@ class TikaBot(commands.Bot):
             await self._handle_ai_conversation(message, is_mention=False)
             return
 
-        # Handle other features (existing code)
+        # Handle other features
         if feature_manager.is_feature_enabled(message.guild.id, "detention_system"):
             if (detention_cog := self.get_cog("Detention")) and await detention_cog.is_user_detained(message):
                 await detention_cog.handle_detention_message(message)
