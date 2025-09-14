@@ -3,22 +3,19 @@ import logging
 import google.generativeai as genai
 from typing import Dict, List, Optional
 import random
-import asyncio
-from datetime import datetime, timedelta
 
 # Forward-declare for type hinting to avoid circular import issues
 if False:
     from services.web_search_service import WebSearchService
+    from services.relationship_manager import RelationshipManager
 
 class GeminiService:
-    def __init__(self, api_key: str, web_search_service: 'WebSearchService'):
+    def __init__(self, api_key: str, web_search_service: 'WebSearchService', relationship_manager: 'RelationshipManager'):
         self.logger = logging.getLogger(__name__)
         self.web_search_service = web_search_service
-        
-        # User interaction tracking for personality adaptation
-        self.user_interaction_history = {}
-        self.user_relationship_levels = {}  # Track familiarity with users
-        self.repeated_questions = {}  # Track if users ask same things repeatedly
+        # --- THIS IS THE CHANGE ---
+        # Inject the new relationship manager
+        self.relationship_manager = relationship_manager
         
         try:
             genai.configure(api_key=api_key)
@@ -31,39 +28,6 @@ class GeminiService:
     def is_ready(self) -> bool:
         """Check if the Gemini model was loaded successfully."""
         return self.model is not None
-
-    def _analyze_user_relationship(self, user_id: int, message_history: List[Dict]) -> str:
-        """Determine relationship level with user based on interaction history."""
-        interaction_count = len(self.user_interaction_history.get(user_id, []))
-        
-        if interaction_count < 3:
-            return "new_person"
-        elif interaction_count < 15:
-            return "acquaintance"
-        else:
-            return "close_friend"
-
-    def _detect_repeated_question(self, user_id: int, message: str) -> bool:
-        """Check if user is asking similar questions repeatedly."""
-        if user_id not in self.repeated_questions:
-            self.repeated_questions[user_id] = []
-        
-        user_questions = self.repeated_questions[user_id]
-        message_lower = message.lower()
-        
-        # Simple similarity check - you could make this more sophisticated
-        for prev_question in user_questions[-5:]:  # Check last 5 questions
-            if any(word in message_lower for word in prev_question.split() if len(word) > 3):
-                similarity_count = sum(1 for word in prev_question.split() 
-                                     if len(word) > 3 and word in message_lower)
-                if similarity_count >= 2:  # At least 2 meaningful words match
-                    return True
-        
-        user_questions.append(message_lower)
-        if len(user_questions) > 10:
-            user_questions.pop(0)  # Keep only recent questions
-        
-        return False
 
     def _is_search_query(self, message: str) -> bool:
         """Enhanced heuristic to decide if a message needs a search."""
@@ -140,36 +104,24 @@ class GeminiService:
         
         return base_personality + "\n" + personality_modifier + "\n" + frustration_modifier
 
-    async def generate_chat_response(self, user_message: str, conversation_history: List[Dict], user_id: int = None) -> str:
+    async def generate_chat_response(self, user_message: str, conversation_history: List[Dict], guild_id: int, user_id: int) -> str:
+        """
+        Generates a dynamic, in-character response based on the user relationship and message context.
+        """
         if not self.is_ready():
             return "My brain isn't working right now. Probably need more coffee..."
 
-        # Track user interaction
-        if user_id:
-            if user_id not in self.user_interaction_history:
-                self.user_interaction_history[user_id] = []
-            
-            self.user_interaction_history[user_id].append({
-                'message': user_message,
-                'timestamp': datetime.now()
-            })
-            
-            # Clean old interactions (older than 30 days)
-            cutoff = datetime.now() - timedelta(days=30)
-            self.user_interaction_history[user_id] = [
-                interaction for interaction in self.user_interaction_history[user_id]
-                if interaction['timestamp'] > cutoff
-            ]
+        # 1. Analyze the user using the persistent RelationshipManager.
+        # This determines how Tika should behave.
+        relationship_level = self.relationship_manager.analyze_relationship(guild_id, user_id)
+        is_repeated, _ = self.relationship_manager.detect_repeated_question(guild_id, user_id, user_message)
 
-        # Analyze user relationship and behavior
-        relationship_level = self._analyze_user_relationship(user_id, conversation_history) if user_id else "new_person"
-        is_repeated = self._detect_repeated_question(user_id, user_message) if user_id else False
-        
-        # Generate dynamic personality context
+        # 2. Generate the dynamic personality instructions for the AI based on the analysis.
         personality_context = self._generate_personality_context(user_id, user_message, relationship_level, is_repeated)
 
         try:
             search_context = None
+            # 3. Decide if a web search is necessary.
             if self._is_search_query(user_message) and self.web_search_service.is_ready():
                 search_results = await self.web_search_service.search(user_message)
                 if search_results:
@@ -177,37 +129,40 @@ class GeminiService:
                         f"The user asked: '{user_message}'\n\n"
                         f"You searched for information and found these results:\n{search_results}\n\n"
                         "Respond naturally as Tika using this information. Don't mention that you searched - "
-                        "act like you either knew it or reluctantly looked it up when pressed."
+                        "act like you either knew it or reluctantly looked it up."
                     )
 
-            # Build conversation with personality context
+            # 4. Build the final prompt for the AI.
             full_history = [
                 {"role": "user", "parts": [personality_context]},
-                {"role": "model", "parts": ["I understand. I'll respond as Tika with the appropriate personality for this relationship level and situation."]}
+                {"role": "model", "parts": ["I understand. I will respond as Tika with the appropriate personality for this relationship level and situation."]}
             ]
 
             if search_context:
+                # If we searched, the search results are the most important context.
                 full_history.append({"role": "user", "parts": [search_context]})
                 message_to_send = "Please respond to the user's question using the search results."
             else:
-                # Add recent conversation history
-                full_history.extend(conversation_history[-10:])  # Last 10 exchanges
+                # If it's a normal chat, use the recent conversation history.
+                full_history.extend(conversation_history[-10:])  # Last 5 exchanges
                 message_to_send = user_message
 
+            # 5. Get the response from the AI.
             chat_session = self.model.start_chat(history=full_history)
-            response = await chat_session.send_message_async(message_to_send)
-            
-            return response.text.strip()
+            response = chat_session.send_message(message_to_send)
+            response_text = response.text.strip()
+
+            # 6. IMPORTANT: Record that this interaction happened to build the relationship.
+            await self.relationship_manager.record_interaction(guild_id, user_id)
+
+            return response_text
 
         except Exception as e:
             self.logger.error(f"Gemini chat generation failed: {e}", exc_info=True)
-            
-            # Personality-appropriate error messages
             error_responses = [
                 "Ugh, my brain just... froze. Give me a second?",
                 "Sorry, I just completely blanked out there. What were we talking about?",
                 "I can't think straight right now. Maybe ask me again in a bit?",
-                "Something's not working right up here today..."
             ]
             return random.choice(error_responses)
 
@@ -226,7 +181,7 @@ class GeminiService:
         )
         
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception:
             return "I couldn't make sense of that conversation. It was probably nonsense anyway."
@@ -251,7 +206,7 @@ class GeminiService:
         )
         
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = self.model.generate_content(prompt)
             comment = response.text.strip()
             
             # Remove quotes if the AI added them
@@ -277,7 +232,7 @@ class GeminiService:
         )
         
         try:
-            response = await self.model.generate_content_async(prompt)
+            response = self.model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
             self.logger.error(f"Text processing into memory failed: {e}")

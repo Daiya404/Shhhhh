@@ -23,17 +23,27 @@ class AIChat(commands.Cog):
             return await interaction.response.send_message("My AI brain is offline. Try again later.", ephemeral=True)
 
         await interaction.response.defer()
+        
         user_id = interaction.user.id
+        guild_id = interaction.guild.id
+        
         self.conversation_history[user_id] = [{"role": "user", "parts": [message]}]
         
-        async with interaction.channel.typing():
+        try:
             response_text = await self.gemini_service.generate_chat_response(
                 user_message=message,
-                conversation_history=self.conversation_history[user_id]
+                conversation_history=self.conversation_history[user_id],
+                guild_id=guild_id,
+                user_id=user_id
             )
 
-        self.conversation_history[user_id].append({"role": "model", "parts": [response_text]})
-        await interaction.followup.send(response_text)
+            self.conversation_history[user_id].append({"role": "model", "parts": [response_text]})
+            
+            await interaction.followup.send(response_text)
+            
+        except Exception as e:
+            self.logger.error(f"Chat command failed: {e}")
+            await interaction.followup.send("Sorry, something went wrong with my response.")
 
 async def setup(bot):
     if hasattr(bot, 'gemini_service') and bot.gemini_service and bot.gemini_service.is_ready():

@@ -11,6 +11,7 @@ from config.settings import Settings
 from services.data_manager import DataManager
 from services.gemini_service import GeminiService
 from services.knowledge_service import KnowledgeService
+from services.relationship_manager import RelationshipManager
 from services.web_search_service import WebSearchService
 
 class TikaBot(commands.Bot):
@@ -29,9 +30,11 @@ class TikaBot(commands.Bot):
         self.data_manager = DataManager(base_path=self.settings.DATA_DIR)
         self.http_session = aiohttp.ClientSession()
         self.web_search_service = WebSearchService(self.http_session)
+        self.relationship_manager = RelationshipManager(self.data_manager)
         self.gemini_service = GeminiService(
             api_key=self.settings.GEMINI_API_KEY, 
-            web_search_service=self.web_search_service
+            web_search_service=self.web_search_service,
+            relationship_manager=self.relationship_manager
         )
         self.knowledge_service = KnowledgeService(self.data_manager, self.gemini_service)
         
@@ -47,6 +50,7 @@ class TikaBot(commands.Bot):
 
     async def setup_hook(self):
         await self.knowledge_service.on_ready()
+        await self.relationship_manager.on_ready()
         self.logger.info("--- Tika is waking up... ---")
         
         # Ensure directories exist
@@ -64,11 +68,11 @@ class TikaBot(commands.Bot):
                         try:
                             extension = f"cogs.{folder.name}.{file.stem}"
                             await self.load_extension(extension)
-                            self.logger.info(f"✅ Loaded Cog: {extension}")
+                            self.logger.info(f"Loaded Cog: {extension}")
                             loaded_cogs += 1
                         except Exception as e:
                             failed_cogs.append((extension, str(e)))
-                            self.logger.error(f"❌ Failed to load Cog: {extension}", exc_info=e)
+                            self.logger.error(f"âŒ Failed to load Cog: {extension}", exc_info=e)
         
         self.logger.info(f"--- Loaded {loaded_cogs} cog(s) successfully. ---")
         if failed_cogs:
@@ -77,15 +81,14 @@ class TikaBot(commands.Bot):
         # Sync commands
         try:
             synced = await self.tree.sync()
-            self.logger.info(f"🔄 Synced {len(synced)} application command(s) globally.")
+            self.logger.info(f"Synced {len(synced)} application command(s) globally.")
         except Exception as e:
             self.logger.error(f"Failed to sync commands: {e}")
 
     def _calculate_realistic_typing_time(self, response_length: int) -> float:
         base_time = 0.5
         typing_speed = 0.05
-        # The argument `response_length` is already an integer. We don't need len().
-        thinking_time = min(2.0, response_length / 50)
+        thinking_time = min(2.0, response_length * 0.02)
         return base_time + (response_length * typing_speed) + thinking_time
 
     async def _send_with_realistic_timing(self, messageable, content: str, mention_author: bool = False, reference_message=None):
@@ -121,10 +124,10 @@ class TikaBot(commands.Bot):
         # Handle AI interactions
         if is_mention:
             content = message.clean_content.replace(f"@{self.user.name}", "").strip()
-            # --- THIS IS THE FIX for the missing summarize command ---
+            
             if content.lower().startswith("summarize"):
-                await self._handle_summarize_request(message); return
-            await self._handle_ai_conversation(message, is_mention=True); return
+                await self._handle_summarize_request(message)
+                return
                 
             # Regular AI conversation
             await self._handle_ai_conversation(message, is_mention=True)
@@ -275,9 +278,10 @@ class TikaBot(commands.Bot):
         try:
             # Generate response with user context
             response_text = await chat_cog.gemini_service.generate_chat_response(
-                user_message=user_message_content, 
+                user_message=user_message_content,
                 conversation_history=history,
-                user_id=user_id  # Pass user ID for relationship tracking
+                guild_id=message.guild.id,
+                user_id=message.author.id
             )
             
             # Add response to history
