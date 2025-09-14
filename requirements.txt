@@ -1,11 +1,25 @@
-# requirements.txt
+# Core Discord library
 discord.py
+
+# Asynchronous file I/O for the DataManager
 aiofiles
+
+# Required for voice functionality (good practice to include)
 PyNaCl
+
+# For all web requests (API calls, web scraping)
 aiohttp
+
+# Google Gemini AI API
 google-generativeai
-psutil
+
+# DuckDuckGo Web Search API (no key required)
 ddgs
+
+# System Resource Monitoring (for /performance)
+psutil
+
+# Google Drive API for Backups
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
