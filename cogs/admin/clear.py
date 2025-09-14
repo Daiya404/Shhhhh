@@ -129,7 +129,7 @@ class Clear(commands.Cog):
         """A local check to see if the clear feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
         if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "clear_commands"):
-            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            await interaction.response.send_message("Hmph. The Clear feature is disabled on this server.", ephemeral=True)
             return False
         return True
 

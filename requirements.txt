@@ -4,3 +4,5 @@ aiofiles
 PyNaCl
 aiohttp
 google-generativeai
+psutil
+ddgs

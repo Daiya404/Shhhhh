@@ -100,13 +100,20 @@ class GeminiService:
         - Short fuse when dealing with repetitive, trivial tasks
         - Occasionally clumsy and scatterbrained but charming
         - Sharp and witty edge to your responses
+        
+        IMPORTANT COMMUNICATION STYLE:
+        - Speak naturally like a real person in conversation
+        - NO roleplay actions in asterisks (*does this* or *says that*)
+        - NO physical descriptions or actions in your responses
+        - Use natural speech patterns and conversational flow
+        - Your personality comes through in your words and tone, not actions
         """
         
         if relationship_level == "new_person":
             personality_modifier = """
             BEHAVIOR WITH NEW PEOPLE: You're hesitant to help but will do it if needed. Be polite but somewhat 
             reserved. Don't open up too much initially. Show your intelligence but keep responses measured.
-            Start responses with slight reluctance like "Oh, you need help with that?" or "I suppose I can explain..."
+            You might start with slight reluctance like "Oh, you need help with that?" or "I suppose I can explain..."
             """
         elif relationship_level == "acquaintance":
             personality_modifier = """
@@ -133,35 +140,9 @@ class GeminiService:
         
         return base_personality + "\n" + personality_modifier + "\n" + frustration_modifier
 
-    def _add_conversational_flair(self, response_base: str, is_embarrassed: bool = False) -> str:
-        """Add personality-specific conversational elements."""
-        
-        if is_embarrassed:
-            # Tika loses filters when embarrassed
-            embarrassed_starters = [
-                "*turns bright red* Um, well, I mean...",
-                "*blushes furiously* That's... that's actually...",
-                "*face heating up* I can't believe I'm saying this but...",
-                "*clearly flustered* Oh god, I just..."
-            ]
-            return random.choice(embarrassed_starters) + " " + response_base
-        
-        # Regular conversational starters based on mood
-        casual_starters = [
-            "*adjusts her skirt and sighs*",
-            "*runs a hand through her bob*",
-            "*looks up from what she was doing*",
-            "*straightens up slightly*"
-        ]
-        
-        if random.random() < 0.3:  # 30% chance to add physical action
-            return random.choice(casual_starters) + " " + response_base
-        
-        return response_base
-
     async def generate_chat_response(self, user_message: str, conversation_history: List[Dict], user_id: int = None) -> str:
         if not self.is_ready():
-            return "My brain isn't working right now. Probably need more coffee... *sighs*"
+            return "My brain isn't working right now. Probably need more coffee..."
 
         # Track user interaction
         if user_id:
@@ -216,39 +197,31 @@ class GeminiService:
             chat_session = self.model.start_chat(history=full_history)
             response = await chat_session.send_message_async(message_to_send)
             
-            # Add conversational flair
-            base_response = response.text.strip()
-            
-            # Detect if Tika should be embarrassed (simple heuristic)
-            embarrassing_topics = ['compliment', 'cute', 'pretty', 'smart', 'beautiful', 'amazing']
-            is_embarrassed = any(topic in user_message.lower() for topic in embarrassing_topics)
-            
-            final_response = self._add_conversational_flair(base_response, is_embarrassed)
-            
-            return final_response
+            return response.text.strip()
 
         except Exception as e:
             self.logger.error(f"Gemini chat generation failed: {e}", exc_info=True)
             
             # Personality-appropriate error messages
             error_responses = [
-                "Ugh, my brain just... froze. Give me a second? *taps temple*",
-                "*looks confused* Sorry, I just completely blanked out there. What were we talking about?",
+                "Ugh, my brain just... froze. Give me a second?",
+                "Sorry, I just completely blanked out there. What were we talking about?",
                 "I can't think straight right now. Maybe ask me again in a bit?",
-                "*sighs in frustration* Something's not working right up here today..."
+                "Something's not working right up here today..."
             ]
             return random.choice(error_responses)
 
     async def summarize_conversation(self, messages: List[str]) -> str:
         if not self.is_ready(): 
-            return "*adjusts her skirt* My brain's not cooperating right now. Can't summarize that."
+            return "My brain's not cooperating right now. Can't summarize that."
             
         conversation_text = "\n".join(messages)
         prompt = (
             "You are Tika. You've been asked to summarize a conversation you've been observing. "
             "Be characteristically reluctant but thorough. Start with something like 'Fine, if you insist...' "
             "or 'I suppose I can tell you what happened...' then provide a clear, informative summary. "
-            "End with a slightly sassy comment about the conversation.\n\n"
+            "End with a slightly sassy comment about the conversation. "
+            "Speak naturally - NO roleplay actions in asterisks or physical descriptions.\n\n"
             f"CONVERSATION TO SUMMARIZE:\n{conversation_text}\n\nYOUR SUMMARY:"
         )
         
@@ -256,7 +229,7 @@ class GeminiService:
             response = await self.model.generate_content_async(prompt)
             return response.text.strip()
         except Exception:
-            return "*throws hands up* I couldn't make sense of that conversation. It was probably nonsense anyway."
+            return "I couldn't make sense of that conversation. It was probably nonsense anyway."
             
     async def generate_proactive_comment(self, messages: List[str]) -> str:
         if not self.is_ready(): 
@@ -264,23 +237,16 @@ class GeminiService:
             
         conversation_text = "\n".join(messages)
         
-        # Different proactive comment styles based on conversation analysis
-        comment_styles = [
-            "observational", "helpful_tip", "gentle_correction", 
-            "witty_interjection", "reluctant_advice"
-        ]
-        
-        style = random.choice(comment_styles)
-        
         prompt = (
-            f"You are Tika, observing a Discord conversation. Make a brief, natural comment ({style} style). "
+            "You are Tika, observing a Discord conversation. Make a brief, natural comment. "
             "Keep it under 50 words. Don't announce yourself as a bot - just interject naturally like another person would. "
+            "Speak naturally like a real person - NO roleplay actions in asterisks or physical descriptions. "
             "Examples of your style:\n"
-            "- Observational: 'That's... actually kind of interesting.'\n"
-            "- Helpful tip: '*sighs* You know there's an easier way to do that, right?'\n"
-            "- Gentle correction: 'Um, actually... *adjusts position* that's not quite how it works.'\n"
-            "- Witty interjection: 'Well, that escalated quickly.'\n"
-            "- Reluctant advice: 'I probably shouldn't say this, but...'\n\n"
+            "- 'That's... actually kind of interesting.'\n"
+            "- 'You know there's an easier way to do that, right?'\n"
+            "- 'Um, actually... that's not quite how it works.'\n"
+            "- 'Well, that escalated quickly.'\n"
+            "- 'I probably shouldn't say this, but...'\n\n"
             f"RECENT CONVERSATION:\n{conversation_text}\n\nYOUR COMMENT:"
         )
         
@@ -306,7 +272,7 @@ class GeminiService:
             "You are Tika. Process this information into a concise fact you can remember and reference later. "
             "Keep it informative but show your characteristic slight reluctance about learning new things. "
             "Use natural speech like 'I learned that [fact]. I suppose that's useful to know.' "
-            "No physical descriptions or roleplay elements.\n\n"
+            "Speak naturally - NO roleplay actions in asterisks or physical descriptions.\n\n"
             f"CONTENT TO PROCESS:\n{content}\n\nYOUR PROCESSED MEMORY:"
         )
         

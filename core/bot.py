@@ -82,11 +82,10 @@ class TikaBot(commands.Bot):
             self.logger.error(f"Failed to sync commands: {e}")
 
     def _calculate_realistic_typing_time(self, response_length: int) -> float:
-        """Calculate realistic typing time based on response length."""
-        base_time = 0.5  # Minimum typing time
-        typing_speed = 0.05  # Seconds per character (adjustable)
-        thinking_time = min(2.0, len(response_length) / 50)  # Brief thinking time
-        
+        base_time = 0.5
+        typing_speed = 0.05
+        # The argument `response_length` is already an integer. We don't need len().
+        thinking_time = min(2.0, response_length / 50)
         return base_time + (response_length * typing_speed) + thinking_time
 
     async def _send_with_realistic_timing(self, messageable, content: str, mention_author: bool = False, reference_message=None):
@@ -122,11 +121,10 @@ class TikaBot(commands.Bot):
         # Handle AI interactions
         if is_mention:
             content = message.clean_content.replace(f"@{self.user.name}", "").strip()
-            
-            # Special command: summarize
+            # --- THIS IS THE FIX for the missing summarize command ---
             if content.lower().startswith("summarize"):
-                await self._handle_summarize_request(message)
-                return
+                await self._handle_summarize_request(message); return
+            await self._handle_ai_conversation(message, is_mention=True); return
                 
             # Regular AI conversation
             await self._handle_ai_conversation(message, is_mention=True)
@@ -190,7 +188,7 @@ class TikaBot(commands.Bot):
         feature_manager = self.get_cog("FeatureManager")
         if feature_manager and not feature_manager.is_feature_enabled(message.guild.id, "ai_summarize"):
             responses = [
-                "The summarize feature is disabled here. *shrugs* Not my problem.",
+                "The summarize feature is disabled here. Not my problem.",
                 "I'm not allowed to summarize on this server. Take it up with the admins.",
                 "Summarizing is turned off here. Sorry, I guess."
             ]
@@ -219,7 +217,7 @@ class TikaBot(commands.Bot):
                     
             if not history:
                 no_history_responses = [
-                    "There's literally nothing here to summarize. *looks around confused*",
+                    "There's literally nothing here to summarize.",
                     "What conversation? I don't see anything worth summarizing.",
                     "You want me to summarize... nothing? Okay then."
                 ]
@@ -294,10 +292,10 @@ class TikaBot(commands.Bot):
         except Exception as e:
             self.logger.error(f"AI conversation failed: {e}")
             error_responses = [
-                "*stares blankly* Sorry, what were we talking about?",
-                "My brain just froze. Give me a second... *confused*",
+                "Sorry, what were we talking about?",
+                "My brain just froze. Give me a second...",
                 "I completely lost my train of thought. What was the question?",
-                "*looks flustered* Um... can you repeat that? I wasn't paying attention."
+                "Um... can you repeat that? I wasn't paying attention."
             ]
             
             await self._send_with_realistic_timing(

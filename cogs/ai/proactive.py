@@ -6,7 +6,7 @@ import logging
 import random
 import asyncio
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 from cogs.admin.bot_admin import is_bot_admin
 
@@ -36,7 +36,7 @@ class ProactiveAI(commands.Cog):
             return
             
         channel_id = message.channel.id
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         
         if channel_id not in self.channel_activity:
             self.channel_activity[channel_id] = []
@@ -106,7 +106,7 @@ class ProactiveAI(commands.Cog):
             
         # Don't speak too often in the same channel
         last_proactive = self.last_proactive_messages.get(channel_id)
-        if last_proactive and (datetime.utcnow() - last_proactive).seconds < 1800:  # 30 min cooldown
+        if last_proactive and (datetime.now(UTC) - last_proactive).total_seconds() < 1200: # 20 min cooldown
             frequency_modifier *= 0.1
 
         adjusted_frequency = min(base_frequency * frequency_modifier, 80)  # Cap at 80%
@@ -147,7 +147,7 @@ class ProactiveAI(commands.Cog):
         time_since_last = (discord.utils.utcnow() - last_message_time).total_seconds()
         
         # Don't interrupt if too recent (< 2 min) or too old (> 15 min)
-        if time_since_last < 120 or time_since_last > 900:
+        if time_since_last < 60 or time_since_last > 900:
             return
 
         try:
@@ -181,7 +181,7 @@ class ProactiveAI(commands.Cog):
                     await asyncio.sleep(min(typing_time, 4.0))
                     await channel.send(comment)
                     
-                self.last_proactive_messages[channel_id] = datetime.utcnow()
+                self.last_proactive_messages[channel_id] = datetime.now(UTC)
                 self.logger.info(f"Sent proactive message in {channel.name}: {comment[:50]}...")
                 
         except discord.Forbidden:
@@ -262,7 +262,7 @@ class ProactiveAI(commands.Cog):
         
         if monitored_channel_id in self.last_proactive_messages:
             last_comment = self.last_proactive_messages[monitored_channel_id]
-            time_since = (datetime.utcnow() - last_comment).total_seconds() / 60
+            time_since = (datetime.now(UTC) - last_comment).total_seconds() / 60
             embed.add_field(
                 name="Last Comment",
                 value=f"{time_since:.0f} minutes ago",
@@ -277,7 +277,7 @@ class ProactiveAI(commands.Cog):
         if not guild_settings.get("channel_id"):
             await interaction.followup.send(
                 "❌ You must configure a channel first using the `config` action.\n"
-                "*I can't just start talking randomly everywhere. That would be chaos.*"
+                "I can't just start talking randomly everywhere. That would be chaos."
             )
             return
             
@@ -287,8 +287,8 @@ class ProactiveAI(commands.Cog):
         channel = self.bot.get_channel(guild_settings["channel_id"])
         await interaction.followup.send(
             f"✅ **Proactive AI Enabled**\n"
-            f"*Fine, I'll start paying attention to conversations in {channel.mention}. "
-            f"Don't blame me if I interrupt something important.*"
+            f"Fine, I'll start paying attention to conversations in {channel.mention}. "
+            f"Don't blame me if I interrupt something important."
         )
 
     async def _disable_proactive(self, interaction: discord.Interaction, guild_settings: dict):
@@ -297,9 +297,9 @@ class ProactiveAI(commands.Cog):
         await self.data_manager.save_data("proactive_ai_settings", self.settings_cache)
         
         responses = [
-            "✅ **Proactive AI Disabled**\n*Finally. I was getting tired of listening to you all anyway.*",
-            "✅ **Proactive AI Disabled**\n*Alright, I'll go back to ignoring your conversations. You're welcome.*",
-            "✅ **Proactive AI Disabled**\n*Good. Now I can focus on more important things than your chatter.*"
+            "✅ **Proactive AI Disabled**\nFinally. I was getting tired of listening to you all anyway.",
+            "✅ **Proactive AI Disabled**\nAlright, I'll go back to ignoring your conversations. You're welcome.",
+            "✅ **Proactive AI Disabled**\nGood. Now I can focus on more important things than your chatter."
         ]
         
         await interaction.followup.send(random.choice(responses))
@@ -309,7 +309,7 @@ class ProactiveAI(commands.Cog):
         if not channel or frequency is None:
             await interaction.followup.send(
                 "❌ You must provide both a `channel` and a `frequency` to configure.\n"
-                "*I need to know where to talk and how much. Be specific.*"
+                "I need to know where to talk and how much. Be specific."
             )
             return
             
@@ -323,82 +323,48 @@ class ProactiveAI(commands.Cog):
             f"✅ **Proactive AI Configured**\n"
             f"📍 **Channel:** {channel.mention}\n"
             f"🎯 **Base Frequency:** {frequency}% ({frequency_desc})\n\n"
-            f"*I'll monitor {channel.mention} and consider commenting about {frequency}% of the time. "
-            f"The actual frequency will adjust based on context - I'm not completely thoughtless.*"
+            f"I'll monitor {channel.mention} and consider commenting about {frequency}% of the time. "
+            f"The actual frequency will adjust based on context - I'm not completely thoughtless."
         )
 
     async def _test_proactive(self, interaction: discord.Interaction, guild_settings: dict):
         """Test proactive AI by generating a comment on recent messages."""
+        # --- THIS IS THE FIX ---
+        # We send an initial public message first, which establishes a response.
+        await interaction.response.send_message("🤔 Analyzing conversation in the channel...", ephemeral=True)
+        
         if not self.gemini_service.is_ready():
-            await interaction.followup.send(
-                "❌ My AI brain is offline. Can't test anything right now.\n"
-                "*Figures. When you actually want me to work, I'm broken.*"
-            )
-            return
+            return await interaction.edit_original_response(content="❌ My AI brain is offline. Can't test anything right now.")
             
         channel_id = guild_settings.get("channel_id")
         if not channel_id:
-            await interaction.followup.send(
-                "❌ No channel configured. Use the `config` action first.\n"
-                "*How am I supposed to comment on nothing?*"
-            )
-            return
+            return await interaction.edit_original_response(content="❌ No channel configured. Use the `config` action first.")
             
         channel = self.bot.get_channel(channel_id)
         if not channel:
-            await interaction.followup.send(
-                "❌ Configured channel not found. It might have been deleted.\n"
-                "*Great, now I'm talking to the void.*"
-            )
-            return
+            return await interaction.edit_original_response(content="❌ Configured channel not found. It might have been deleted.")
 
         try:
-            # Get recent messages
-            messages = []
-            async for msg in channel.history(limit=10):
-                if not msg.author.bot and msg.clean_content.strip():
-                    messages.append(f"{msg.author.display_name}: {msg.clean_content}")
-                    
+            messages = [f"{msg.author.display_name}: {msg.clean_content}" async for msg in channel.history(limit=10) if not msg.author.bot and msg.clean_content.strip()]
             if len(messages) < 3:
-                await interaction.followup.send(
-                    f"❌ Not enough conversation in {channel.mention} to generate a test comment.\n"
-                    "*There's literally nothing interesting to comment on.*"
-                )
-                return
+                return await interaction.edit_original_response(content=f"❌ Not enough conversation in {channel.mention} to generate a test comment.")
                 
             messages.reverse()
             
-            # Generate test comment
-            await interaction.response.edit_original_response(content="🤔 *Analyzing conversation...*")
-            
             comment = await self.gemini_service.generate_proactive_comment(messages)
             
+            # Now we can safely edit the "Analyzing..." message with the final result.
             if comment:
-                embed = discord.Embed(
-                    title="🧪 Test Proactive Comment",
-                    description=f"Based on recent conversation in {channel.mention}:",
-                    color=discord.Color.blue()
-                )
-                embed.add_field(
-                    name="Generated Comment:",
-                    value=f'"{comment}"',
-                    inline=False
-                )
+                embed = discord.Embed(title="🧪 Test Proactive Comment", description=f"Based on recent conversation in {channel.mention}:", color=discord.Color.blue())
+                embed.add_field(name="Generated Comment:", value=f'"{comment}"', inline=False)
                 embed.set_footer(text="This is just a test - the comment wasn't actually sent")
-                
-                await interaction.followup.send(embed=embed)
+                await interaction.edit_original_response(content=None, embed=embed)
             else:
-                await interaction.followup.send(
-                    "❌ Couldn't generate a test comment. The conversation might be too boring.\n"
-                    "*Even I have standards about what's worth commenting on.*"
-                )
+                await interaction.edit_original_response(content="❌ Couldn't generate a test comment. The conversation might be too boring.")
                 
         except Exception as e:
             self.logger.error(f"Test proactive comment failed: {e}")
-            await interaction.followup.send(
-                "❌ Something went wrong during the test. Typical.\n"
-                "*My brain decided to take a break at the worst possible moment.*"
-            )
+            await interaction.edit_original_response(content="❌ Something went wrong during the test. Typical.")
 
 async def setup(bot):
     if hasattr(bot, 'gemini_service') and bot.gemini_service and bot.gemini_service.is_ready():
