@@ -5,8 +5,7 @@ from discord import app_commands
 import logging
 import re
 import time
-import asyncio
-from typing import Optional, Dict, List
+from typing import Optional, List
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from enum import Enum
@@ -126,7 +125,21 @@ class WordBlocker(commands.Cog):
         
         content = message.content.lower()
         triggered_word, word_data = None, None
-        
+
+        # Check global patterns safely
+        global_pattern = patterns.get("global")
+        if global_pattern and (match := global_pattern.search(content)):
+            triggered_word = match.group()
+            self.performance_stats["regex_cache_hits"] += 1
+            
+        # Check user-specific patterns safely
+        if not triggered_word:
+            user_id = str(message.author.id)
+            user_pattern = patterns.get("users", {}).get(user_id)
+            if user_pattern and (match := user_pattern.search(content)):
+                triggered_word = match.group()
+                self.performance_stats["regex_cache_hits"] += 1
+
         # Check global patterns
         if patterns.get("global") and (match := patterns["global"].search(content)):
             triggered_word = match.group()
