@@ -5,6 +5,16 @@
       "alts": [
         "eagle"
       ]
+    },
+    "hello": {
+      "reply": "Hi {user}!|Hey there {mention}!|Ello!",
+      "alts": [
+        "ello",
+        "hallo",
+        "hi"
+      ],
+      "created_by": 1409989230708523099,
+      "created_at": 1757943413
     }
   }
 }

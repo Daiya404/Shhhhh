@@ -1,21 +1,37 @@
 {
   "1414334870720741520": {
-    "global": [
-      "bihari",
-      "nigga",
-      "unc"
-    ],
+    "global": {
+      "unc": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1757946833
+      },
+      "bihari": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1757946833
+      },
+      "nigga": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1757946833
+      }
+    },
     "users": {
-      "1409989230708523099": [
-        "masha"
-      ]
+      "1409989230708523099": {}
+    },
+    "settings": {
+      "default_action": "warn_delete"
     }
   },
   "932255513893290024": {
-    "global": [
-      "unc",
-      "vro"
-    ],
-    "users": {}
+    "global": {},
+    "users": {},
+    "settings": {
+      "default_action": "warn_delete"
+    }
   }
 }
