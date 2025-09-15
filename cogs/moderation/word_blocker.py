@@ -32,36 +32,23 @@ class WordBlocker(commands.Cog):
         self.personality = PERSONALITY_RESPONSES["word_blocker"]
         self.data_manager = self.bot.data_manager
         
-        # --- RATE LIMITING FOR WARNINGS ONLY ---
         self.WARNING_COOLDOWN = 3.0
         self.channel_warning_cooldowns = {}
-        
-        # --- SMART CACHING ---
         self.blocklist_cache = {}
         self.compiled_patterns = {}
-        
-        # --- ANTI-SPAM ---
         self.user_violations = defaultdict(lambda: deque(maxlen=10))
         self.ESCALATION_WINDOW = 300
-        
-        # --- PERFORMANCE METRICS ---
         self.performance_stats = defaultdict(int)
-        
-        # --- WHITELIST SUPPORT ---
         self.whitelist_cache = {}
 
     @commands.Cog.listener()
     async def on_ready(self):
         self.logger.info("Loading optimized word blocker system...")
-        
         raw_blocklist = await self.data_manager.get_data("word_blocklist")
         await self._migrate_legacy_data(raw_blocklist)
-        
         self.whitelist_cache = await self.data_manager.get_data("word_whitelist") or {}
-        
         for guild_id, data in self.blocklist_cache.items():
             await self._update_guild_cache(guild_id, data)
-            
         self.logger.info(f"Word Blocker ready with {len(self.blocklist_cache)} guild configs")
 
     async def _migrate_legacy_data(self, raw_data: dict):
@@ -86,12 +73,9 @@ class WordBlocker(commands.Cog):
         try:
             global_words = list(guild_data.get("global", {}).keys())
             global_pattern = self._build_optimized_pattern(global_words)
-            
             user_patterns = {uid: self._build_optimized_pattern(list(uwords.keys())) for uid, uwords in guild_data.get("users", {}).items()}
-            
             whitelist_words = list(self.whitelist_cache.get(guild_id, {}).keys())
             whitelist_pattern = self._build_optimized_pattern(whitelist_words, use_boundaries=True)
-            
             self.compiled_patterns[guild_id] = {"global": global_pattern, "users": user_patterns, "whitelist": whitelist_pattern}
             self.logger.debug(f"Updated cache for guild {guild_id}")
         except Exception as e:
@@ -124,32 +108,22 @@ class WordBlocker(commands.Cog):
         if self._check_whitelist(message.content, guild_id): return False
         
         content = message.content.lower()
-        triggered_word, word_data = None, None
+        triggered_word = None
 
-        # Check global patterns safely
+        # --- FIX STARTS HERE: REMOVED DUPLICATE AND BUGGY CODE BLOCK ---
+        # This is the single, correct block of logic.
         global_pattern = patterns.get("global")
         if global_pattern and (match := global_pattern.search(content)):
             triggered_word = match.group()
             self.performance_stats["regex_cache_hits"] += 1
             
-        # Check user-specific patterns safely
         if not triggered_word:
             user_id = str(message.author.id)
             user_pattern = patterns.get("users", {}).get(user_id)
             if user_pattern and (match := user_pattern.search(content)):
                 triggered_word = match.group()
                 self.performance_stats["regex_cache_hits"] += 1
-
-        # Check global patterns
-        if patterns.get("global") and (match := patterns["global"].search(content)):
-            triggered_word = match.group()
-            self.performance_stats["regex_cache_hits"] += 1
-            
-        # Check user-specific patterns
-        user_id = str(message.author.id)
-        if not triggered_word and user_id in patterns.get("users", {}) and (match := patterns["users"][user_id].search(content)):
-            triggered_word = match.group()
-            self.performance_stats["regex_cache_hits"] += 1
+        # --- FIX ENDS HERE ---
 
         if triggered_word:
             await self._handle_blocked_message(message, triggered_word)
@@ -166,8 +140,6 @@ class WordBlocker(commands.Cog):
 
         self.user_violations[message.author.id].append(time.time())
         violation_level = len(self.user_violations[message.author.id])
-        
-        # For simplicity, we assume the action is always WARN_DELETE as per the simplified logic
         await self._send_warning(message, trigger_word, violation_level)
 
     async def _send_warning(self, message: discord.Message, trigger_word: str, violation_level: int):
@@ -229,7 +201,6 @@ class WordBlocker(commands.Cog):
         await self.data_manager.save_data("word_blocklist", self.blocklist_cache)
         await self._update_guild_cache(guild_id, guild_data)
         
-        # Build response message
         response_parts = []
         target_str = f"for {user.display_name}" if user else "from the global list"
         if added: response_parts.append(f"Added: `{'`, `'.join(added)}` {target_str}.")

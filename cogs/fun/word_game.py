@@ -53,49 +53,65 @@ class WordGame(commands.Cog):
         self.word_list: Set[str] = set()
         self._guild_locks = defaultdict(asyncio.Lock)
         
-        self.periodic_task.start()
+        self.stale_game_task.start()
 
-    @commands.Cog.listener()
-    async def on_ready(self):
+    async def cog_load(self):
         """Loads all data and the local dictionary asynchronously."""
         self.logger.info("Loading WordGame data and dictionary into memory...")
         
-        # --- OPTIMIZATION: Asynchronous File Loading ---
         dictionary_path = self.bot.settings.ASSETS_DIR / "dictionary.txt"
         try:
             async with aiofiles.open(dictionary_path, "r", encoding="utf-8") as f:
-                # This comprehension is the fastest way to build the set from the file lines
                 self.word_list = {line.strip().lower() for line in await f.readlines()}
-            self.logger.info(f"Successfully loaded {len(self.word_list):,} words from {dictionary_path}.")
+            self.logger.info(f"Successfully loaded {len(self.word_list):,} words.")
         except FileNotFoundError:
-            self.logger.error(f"CRITICAL: {dictionary_path} not found! The WordGame requires this file to function. Please create it.")
+            self.logger.error(f"CRITICAL: {dictionary_path} not found! WordGame is disabled.")
             self.word_list = set()
 
         self.settings_cache = await self.data_manager.get_data("role_settings")
         self.scores_cache = await self.data_manager.get_data("word_game_scores")
-        self.game_state_cache = await self.data_manager.get_data("word_game_state")
+        game_state_data = await self.data_manager.get_data("word_game_state")
+
+        # Convert loaded used_words lists to sets for O(1) lookups
+        for guild_id, state in game_state_data.items():
+            if "used_words" in state and isinstance(state["used_words"], list):
+                state["used_words"] = set(state["used_words"])
+        self.game_state_cache = game_state_data
         self.logger.info("WordGame data cache is ready.")
 
     def cog_unload(self):
-        self.periodic_task.cancel()
+        self.stale_game_task.cancel()
 
-    @tasks.loop(minutes=2)
-    async def periodic_task(self):
-        await self.data_manager.save_data("word_game_scores", self.scores_cache)
-        await self.data_manager.save_data("word_game_state", self.game_state_cache)
+    @tasks.loop(minutes=5)
+    async def stale_game_task(self):
+        """This task now ONLY handles restarting stale games."""
         now = time.time()
         for guild_id_str, state in list(self.game_state_cache.items()):
-            if now - state.get("timestamp", 0) > 1800:
+            # Using 12 hours (43200 seconds) as the timeout
+            if now - state.get("timestamp", 0) > 43200:
                 channel_id = self.settings_cache.get(guild_id_str, {}).get("word_game_channel_id")
                 if channel_id and (channel := self.bot.get_channel(int(channel_id))):
                     self.logger.info(f"Stale WordGame round in guild {guild_id_str}. Resetting.")
-                    await channel.send("This round is getting stale... Let's try a new letter!")
+                    await channel.send("This round has been idle for a while... Let's start fresh!")
                     await self._send_new_letter_challenge(channel, is_start=True)
-
-    @periodic_task.before_loop
-    async def before_periodic_task(self):
+    
+    @stale_game_task.before_loop
+    async def before_stale_game_task(self):
         await self.bot.wait_until_ready()
-            
+
+    async def _save_game_state(self):
+        """A dedicated function to safely save the current game state."""
+        state_to_save = {}
+        for guild_id, state in self.game_state_cache.items():
+            state_copy = state.copy()
+            # Convert the 'used_words' set back to a list for JSON
+            if "used_words" in state_copy:
+                state_copy["used_words"] = list(state_copy["used_words"])
+            state_to_save[guild_id] = state_copy
+        
+        await self.data_manager.save_data("word_game_scores", self.scores_cache)
+        await self.data_manager.save_data("word_game_state", state_to_save)
+
     async def check_word_game_message(self, message: discord.Message) -> bool:
         if not message.guild or message.author.bot: return False
         guild_id_str = str(message.guild.id)
@@ -113,7 +129,7 @@ class WordGame(commands.Cog):
         word = message.content.strip().lower()
         
         if len(word.split()) > 1 or not word.isalpha(): return
-        if word in state.get("used_words", []): return await message.add_reaction("🔄")
+        if word in state.get("used_words", set()): return await message.add_reaction("🔄")
         if not word.startswith(state["last_letter"]): return await message.add_reaction("❌")
         if not self._is_valid_english_word(word): return await message.add_reaction("❓")
 
@@ -122,8 +138,11 @@ class WordGame(commands.Cog):
         guild_scores = self.scores_cache.setdefault(guild_id, {})
         guild_scores[user_id] = guild_scores.get(user_id, 0) + xp_gained
         state["last_letter"] = word[-1]
-        state.setdefault("used_words", []).append(word)
+        state.setdefault("used_words", set()).add(word)
         state["timestamp"] = time.time()
+        
+        # --- FIX: Save the state immediately after a successful move ---
+        await self._save_game_state()
         
         correct_embed = discord.Embed(title="✅ Correct!", description=f"**`{word.capitalize()}`** by {message.author.mention}", color=discord.Color.green())
         correct_embed.add_field(name="XP Gained", value=f"+{xp_gained}"); correct_embed.add_field(name="Total XP", value=f"{guild_scores[user_id]:,}")
@@ -153,7 +172,6 @@ class WordGame(commands.Cog):
         elif action == "start":
             game_channel_id = self.settings_cache.get(guild_id, {}).get("word_game_channel_id")
             if not game_channel_id: return await interaction.followup.send("The game channel must be set first.")
-            if guild_id in self.game_state_cache: return await interaction.followup.send(self.personality["already_active"])
             game_channel = self.bot.get_channel(game_channel_id)
             await self._send_new_letter_challenge(game_channel, is_start=True)
             await interaction.followup.send("A new game has been started.")
@@ -164,8 +182,7 @@ class WordGame(commands.Cog):
             if view.confirmed:
                 self.scores_cache.pop(guild_id, None)
                 self.game_state_cache.pop(guild_id, None)
-                await self.data_manager.save_data("word_game_scores", self.scores_cache)
-                await self.data_manager.save_data("word_game_state", self.game_state_cache)
+                await self._save_game_state() # Save after reset
                 await interaction.edit_original_response(content=self.personality["reset_success"], view=None)
             else:
                 await interaction.edit_original_response(content=self.personality["reset_cancel"], view=None)
@@ -195,21 +212,14 @@ class WordGame(commands.Cog):
             await interaction.followup.send(embed=embed)
 
     def _is_valid_english_word(self, word: str) -> bool:
-        """
-        --- THE FAST AF ALGORITHM ---
-        Checks for word validity with O(1) complexity. This is instantaneous.
-        """
-        # 1. Pre-validation: Reject obviously invalid words immediately.
-        if len(word) < 2:
-            return False
-            
-        # 2. The O(1) Check: This is the fastest possible way to check for membership in Python.
+        if len(word) < 2: return False
         return word in self.word_list
         
     async def _send_new_letter_challenge(self, channel: discord.TextChannel, is_start: bool = False):
         guild_id = str(channel.guild.id)
         letter = random.choice("abcdefghijklmnopqrstuvwxyz")
-        self.game_state_cache[guild_id] = {"last_letter": letter, "timestamp": time.time(), "used_words": []}
+        self.game_state_cache[guild_id] = {"last_letter": letter, "timestamp": time.time(), "used_words": set()}
+        await self._save_game_state() # Save the new game state
         embed = discord.Embed(title="🚀 New Word Chain Game Started!", description=f"The first word must start with **{letter.upper()}**!", color=0x5865F2)
         if not is_start: embed.title = "New Round!"
         await channel.send(embed=embed)
