@@ -107,7 +107,6 @@ class FunCommands(commands.Cog):
         # Caches
         self.embed_data_cache: Dict[str, Dict[str, List[str]]] = {}
         self.user_prefs_cache: Dict[str, Dict[str, Dict[str, str]]] = {}
-        self.command_stats_cache: Dict[str, Dict[str, int]] = {}
         
         # Enhanced default embeds with multiple options
         self.default_embeds = {
@@ -141,28 +140,26 @@ class FunCommands(commands.Cog):
         )
 
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
-        """A local check to see if the fun_commands feature is enabled."""
+        """Check if the fun_commands feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
         if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "fun_commands"):
-            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+            await interaction.response.send_message("The Fun Commands feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Load all fun data into memory when the cog is ready."""
+        """Load fun data into memory when the cog is ready."""
         self.logger.info("Loading fun command data into memory...")
         try:
             self.embed_data_cache = await self.data_manager.get_data("fun_embeds")
             self.user_prefs_cache = await self.data_manager.get_data("user_gif_preferences")
-            self.command_stats_cache = await self.data_manager.get_data("fun_command_stats")
             self.logger.info("Fun command data cache loaded successfully.")
         except Exception as e:
             self.logger.error(f"Failed to load fun command data: {e}")
             # Initialize empty caches on failure
             self.embed_data_cache = {}
             self.user_prefs_cache = {}
-            self.command_stats_cache = {}
 
     async def _validate_url(self, url: str) -> bool:
         """Validate URL format and check if it's accessible."""
@@ -204,19 +201,10 @@ class FunCommands(commands.Cog):
             self.logger.error(f"Error getting embed URL for {command}: {e}")
             return random.choice(self.default_embeds.get(command, [""]))
 
-    async def _increment_command_stat(self, guild_id: int, command: str):
-        """Track command usage statistics."""
-        try:
-            guild_stats = self.command_stats_cache.setdefault(str(guild_id), {})
-            guild_stats[command] = guild_stats.get(command, 0) + 1
-            await self.data_manager.save_data("fun_command_stats", self.command_stats_cache)
-        except Exception as e:
-            self.logger.error(f"Failed to increment command stat: {e}")
-
     @app_commands.command(name="coinflip", description="Flip a coin and see if you get heads or tails!")
     async def coinflip(self, interaction: discord.Interaction):
-        if not await self._is_feature_enabled(interaction): return
-        await self._increment_command_stat(interaction.guild_id, "coinflip")
+        if not await self._is_feature_enabled(interaction): 
+            return
         
         flipping_url = self._get_random_embed_url(interaction, "coinflip")
         embed = discord.Embed(
@@ -252,8 +240,8 @@ class FunCommands(commands.Cog):
     @app_commands.command(name="roll", description="Roll dice in XdY format (e.g., 1d6, 2d20, 3d6+5).")
     @app_commands.describe(dice="The dice to roll (e.g., 1d6, 2d20, 1d20+5)")
     async def roll(self, interaction: discord.Interaction, dice: str):
-        if not await self._is_feature_enabled(interaction): return
-        await self._increment_command_stat(interaction.guild_id, "roll")
+        if not await self._is_feature_enabled(interaction): 
+            return
         
         # Enhanced dice parsing with modifiers
         match = self.dice_pattern.match(dice.lower().strip())
@@ -320,8 +308,8 @@ class FunCommands(commands.Cog):
         app_commands.Choice(name="✂️ Scissors", value="scissors")
     ])
     async def rps(self, interaction: discord.Interaction, choice: app_commands.Choice[str]):
-        if not await self._is_feature_enabled(interaction): return
-        await self._increment_command_stat(interaction.guild_id, "rps")
+        if not await self._is_feature_enabled(interaction): 
+            return
         
         user_choice = choice.value
         bot_choice = random.choice(["rock", "paper", "scissors"])

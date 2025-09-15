@@ -6,7 +6,9 @@
       "threshold": 1
     },
     "word_game_channel_id": 1414334873589514329,
-    "detention_channel_id": 1414334872759046249
+    "detention_channel_id": 1414334872759046249,
+    "user_target_role_id": 1414334871236513967,
+    "admin_target_role_id": 1414334871261810868
   },
   "932255513893290024": {
     "chapel_config": {
