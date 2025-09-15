@@ -1,24 +1,20 @@
 {
-  "1377250843858046986": {
-    "target_role_ids": [
-      1377250844180877334
-    ],
-    "detention_channel_id": 1400843330279047380,
-    "word_game_channel_id": 1377250845338501261,
+  "1414334870720741520": {
     "chapel_config": {
-      "channel_id": 1377250844709490746,
-      "emote": "\u2728",
-      "emote_text": "<:KMS:1407823046303027333>",
-      "threshold": 2
+      "channel_id": 1417158079673401450,
+      "emote": "✨",
+      "threshold": 1
     },
-    "leveling_config": {
-      "min_xp": 12,
-      "max_xp": 37,
-      "cooldown": 5
-    },
-    "highlights_channel_id": 1377250844709490744
+    "word_game_channel_id": 1414334873589514329,
+    "detention_channel_id": 1414334872759046249
   },
   "932255513893290024": {
-    "detention_channel_id": 1400910784393117797
+    "chapel_config": {
+      "channel_id": 1376473391351205888,
+      "emote": "✨",
+      "threshold": 1
+    },
+    "detention_channel_id": 1400910784393117797,
+    "word_game_channel_id": 1376848991391842435
   }
 }

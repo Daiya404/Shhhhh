@@ -1,6 +1,7 @@
+# utils/frustration_manager.py
 import time
-from discord.ext import commands
 from discord import Interaction
+from discord.ext import commands
 
 # The time window in seconds for tracking repeated commands.
 FRUSTRATION_WINDOW = 120
@@ -8,17 +9,11 @@ FRUSTRATION_WINDOW = 120
 def get_frustration_level(bot: commands.Bot, interaction: Interaction) -> int:
     """
     Checks and updates the user's command usage to determine a "frustration level".
-
-    This function is the core of making the bot feel more human. It keeps a
-    short-term memory of command usage per user.
-
-    Returns:
-        An integer representing the number of times the user has used the
-        same command recently (0 for the first time, 1 for the second, etc.).
+    This function accesses the bot's central command_usage dictionary.
     """
     user_id = interaction.user.id
-    # We use interaction.command.qualified_name to correctly handle subcommands like "/botadmin add"
-    command_name = interaction.command.qualified_name
+    # We use interaction.command.qualified_name to correctly handle subcommands
+    command_name = interaction.command.qualified_name if interaction.command else "unknown"
 
     now = time.time()
 

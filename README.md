@@ -1,132 +1,83 @@
-# Tika Bot 🤖
+# Tika Bot
 
-A sassy, efficient, and powerful multi-purpose Discord bot designed for complete server management and community engagement.
+Tika is a sophisticated, multi-purpose Discord bot designed for robust server management, engaging community interaction, and intelligent, in-character AI conversation. Built on a modern, scalable architecture, Tika combines powerful administrative tools with a unique, composed personality, making her feel less like a tool and more like a true participant in the server.
 
-[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![discord.py](https://img.shields.io/badge/discord.py-2.5.2-7289DA.svg)](https://github.com/Rapptz/discord.py)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+## ✨ Key Features
 
----
+Tika's functionality is organized into modular cogs, ensuring stability and performance.
 
-## About Tika
+### 🧠 AI & Interaction
 
-Tika is not just another Discord bot. She's a high-performance assistant with a unique personality, built to handle everything a modern server needs. She is helpful and respects competent users but has little patience for mistakes or time-wasting. She combines powerful moderation and utility with deep customization, engaging games, and an AI-powered brain to create a truly all-in-one solution.
+- **Conversational AI (`/chat`, Replies):** Engage in natural, multi-turn conversations with Tika. Her personality adapts based on her relationship with a user, from hesitant with newcomers to open and witty with friends.
+- **Web Search Integration (@mention):** Ask Tika factual questions by mentioning her. She will search the web to find the answer and deliver it with her signature personality.
+- **Conversation Summarization (@mention):** Mention Tika with the word "summarize" to get a concise, in-character summary of the last 50 messages in the channel.
+- **Proactive Engagement (Opt-in):** In a configured channel, Tika can intelligently analyze the ongoing conversation and occasionally interject with her own relevant, in-character comments.
 
-## ✨ Complete Feature List
+### 🛡️ Moderation Suite
 
-Tika is built with a fully modular, cog-based architecture. All commands are slash commands unless specified otherwise.
+- **Word Blocker (`/blockword`):** A high-performance system to block unwanted words, with support for both global and per-user blocklists.
+- **Advanced Link Fixer:** Automatically fixes embeds for popular social media platforms (Twitter/X, Instagram, TikTok, Reddit, Pixiv). Each user can toggle this feature for themselves.
+- **Auto-Reply (`/autoreply`):** Configure custom text or media replies that trigger on specific keywords.
+- **Detention System (`/detention`):** A robust system to temporarily restrict a user's messages to a specific channel, where they must complete a task to be released.
 
-### 🧠 AI Integration
+### 🛠️ Administration & Utility
 
-- **Context-Aware Chat:** Mention Tika (`@Tika-Alpha`) to start a conversation. She reads the recent chat history to understand the context, providing intelligent and in-character responses powered by the Gemini API.
-- **Conversation Summary:** Use `/summarize` to get a concise, AI-generated summary of the last `X` messages in a channel, perfect for catching up.
-- **Self-Learning:** Admins can provide Tika with URLs to learn about her own persona, which she integrates into her knowledge base.
-
-### 🛡️ Moderation
-
-- **Detention System:** A unique, interactive timeout. Admins can place a user in a designated `#detention` channel until they've typed a specific sentence a set number of times. Roles are automatically stripped and restored. The system is abuse-proof, preventing inescapable sentences.
-- **Word Blocker:** A highly efficient, regex-powered system to block words **globally** or on a **per-user** basis. It intelligently matches whole words, handles message edits, and works for all users (including admins).
-- **Chat Clear:** Includes a standard `/clear` command and a unique two-step prefix command (`!tika eat` / `!tika end`) to delete a specific range of messages.
-- **Copy Chapel (Starboard):** A stylish and robust starboard system. Users can react with a custom server emote to "quote" a message to a designated `#chapel` channel. The bot handles replies, live-updates the reaction count, and locks the original message content.
-
-### 🛠️ Utility & Automation
-
-- **Link Fixer:** Automatically detects broken `twitter.com` and `x.com` links and reposts them using `vxtwitter.com` to ensure embeds work correctly. Features both a global toggle for admins and a personal toggle for users.
-- **Auto-Reply:** Set up custom trigger words (`/nga`) that Tika will automatically reply to with text or images. A core feature for server lore and memes.
-- **Reminders & Timers:** A full-featured system allowing users to set personal reminders and timers with natural language (`1d 30m`). Supports repeating reminders, admin management, and user-configurable delivery (DM or channel).
-- **Twitter Feed:** Admins can set up the bot to monitor a Twitter account (via an RSS bridge) and automatically post new tweets to a designated channel.
-
-### 💖 Social & Leveling System
-
-- **XP & Levels:** Users gain XP for chatting. The system is fully customizable by admins, including XP rates and cooldowns.
-- **Pillow-Powered Rank Cards:** A beautiful, custom-generated `/rank` card that displays a user's avatar, level, rank, and a progress bar.
-- **Customizable Rank Cards:** Users can set their own custom background image and accent color for their personal rank card.
-- **Automatic Role Rewards:** Admins can configure specific roles to be automatically granted (and previous roles removed) at level milestones (10, 20, 30, etc.).
+- **Powerful Clear Commands (`/clear`, `/clearsearch`, `!tika eat`):** A full suite of tools for message pruning, including bulk deletion, user-specific deletion, and targeted searching.
+- **Bot Admin Delegation (`/botadmin`):** Server owners can grant trusted, non-admin members permission to use Tika's administrative commands.
+- **Granular Feature Manager (`/feature-manager`):** Enable or disable any of Tika's core features on a per-server basis for complete control.
+- **Automated Backups (`/backup`):** Automatically backs up all server data (settings, scores, etc.) to a private Google Drive folder, ensuring data is never lost.
+- **Performance Monitoring (`/performance`):** Check the bot's real-time RAM usage, latency, and uptime.
+- **Personalized Reminders (`/remind`):** A streamlined system for users to set, list, and delete personal reminders.
+- **Custom Roles (`/personal-role`):** Allow users to create and customize their own personal role with a unique name and color.
+- **Copy Chapel (`/chapel-admin`):** Designate a channel where messages that receive a certain number of a specific reaction are automatically copied.
 
 ### 🎉 Fun & Games
 
-- **Tic-Tac-Toe, Connect 4, Hangman:** A suite of classic, interactive games with robust UI and state management.
-- **Resign Command:** Players can gracefully exit any active game using `/game resign`.
-- **Coinflip, Dice Roll & RPS:** Classic fun commands with sass and personality.
-- **Dynamic Embeds:** Admins can add a custom pool of GIFs/images for each fun command.
-- **GIF Toggle:** Users can disable the GIF on the `/roll` command for a compact, text-based response.
+- **Classic Commands (`/coinflip`, `/roll`, `/rps`):** Standard fun commands with Tika's unique personality.
+- **Server Games (`/play`):** Challenge other server members to persistent games of Tic-Tac-Toe and Connect 4.
+- **Word Chain Game:** A continuous, channel-wide word game where users build on the last letter of the previous word to score points.
 
----
+## 🚀 Setup & Installation
 
-## 🚀 Getting Started
-
-Follow these steps to get your own instance of Tika running.
-
-### Prerequisites
-
-- Python 3.10 or higher
-- A **Discord Bot Token**
-- A **Gemini API Key** for the AI features.
-
-### Installation
-
-1.  **Clone the repository:**
+1.  **Clone the Repository:**
 
     ```bash
-    git clone https://github.com/your-username/TikaBot.git
-    cd TikaBot
+    git clone https://github.com/Daiya404/Shhhhh/tree/main
     ```
 
-2.  **Install dependencies:**
+2.  **Create a Virtual Environment (Recommended):**
+
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+
+3.  **Install Dependencies:**
 
     ```bash
     pip install -r requirements.txt
     ```
 
-3.  **Create the `.env` file:**
+4.  **Configure Secrets:**
+    In the root of the project, create a `secrets` folder. Inside this folder, create the following files:
 
-    - Create a new file in the main directory called `.env`.
-    - Add your Gemini API key to this file:
-      ```GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
+    - `token.txt`: Your Discord Bot Token.
+    - `gemini_api.txt`: Your Google Gemini API Key for the AI.
+    - `owner_email.txt`: Your personal `@gmail.com` address, for the bot to share its backup folder with.
+    - `gdrive_credentials.json`: The JSON key file for your Google Cloud Service Account.
 
-      ```
+5.  **Configure Assets:**
+    In the root of the project, create an `assets` folder. Inside it, you must have:
 
-4.  **Create the `token.txt` file:**
+    - `dictionary.txt`: A text file containing a list of English words, one per line, for the Word Game.
 
-    - Create a new file in the main directory called `token.txt`.
-    - Paste **only** your Discord bot token into this file and save it.
-
-5.  **Create `assets` folder:**
-
-    - Create a folder named `assets` in the main directory.
-    - Inside `assets`, create a folder named `fonts`.
-    - Place a `.ttf` or `.otf` font file inside `assets/fonts` and ensure it is named `unisans.otf` (or update the font name in the code).
-
-6.  **Run the bot:**
+6.  **Run the Bot:**
     ```bash
-    python bot.py
+    python main.py
     ```
 
-### Initial Server Setup
+## ⚙️ Usage & Configuration
 
-After inviting the bot, an admin must configure some features for them to work:
-
-- **Detention:** Create a role named `BEHAVE` and use `/detention set-channel` to designate a channel.
-- **Copy Chapel:** Use `/chapel-admin` to set the channel, emote, and threshold.
-- **Leveling Roles:** Use `/level-admin set-level-role` to configure role rewards.
-
----
-
-## ⚖️ Required Permissions
-
-For full functionality without granting `Administrator`, Tika's role needs the following permissions:
-
-- **Manage Roles** (Detention, Custom Roles, Leveling Roles)
-- **Manage Messages** (Clear, Word Blocker, Chapel)
-- **Manage Webhooks** (Link Fixer)
-- **Read Message History** (Clear, Summarize)
-- **Send Messages** & **Embed Links**
-- **Add Reactions** (Chapel, Word Game)
-
-**Crucially, for Tika to manage roles, her role must be positioned higher than the roles she needs to assign/remove in your server's role hierarchy.**
-
----
-
-## 📜 License
-
-This project is licensed under the MIT License.
+- Most user-facing commands are available via slash commands (`/`).
+- Administrative commands (like `/botadmin`, `/feature-manager`, etc.) are only visible to server administrators by default.
+- Use `/feature-manager` to see a list of all toggleable features and customize Tika's behavior for your server.

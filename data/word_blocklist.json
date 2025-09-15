@@ -1,10 +1,37 @@
 {
-  "1377250843858046986": {
-    "global": [],
+  "1414334870720741520": {
+    "global": {
+      "unc": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1757955300
+      },
+      "bihari": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1757955300
+      },
+      "nigga": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1757955300
+      }
+    },
     "users": {
-      "1267477245426139237": [
-        "andy"
-      ]
+      "1409989230708523099": {}
+    },
+    "settings": {
+      "default_action": "warn_delete"
+    }
+  },
+  "932255513893290024": {
+    "global": {},
+    "users": {},
+    "settings": {
+      "default_action": "warn_delete"
     }
   }
 }
