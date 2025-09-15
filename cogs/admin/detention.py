@@ -19,6 +19,18 @@ class Detention(commands.Cog):
         # --- OPTIMIZATION: In-memory caches ---
         self.detention_cache: Dict[str, Dict] = {}
         self.settings_cache: Dict[str, Dict] = {}
+    
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the detention_system feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "detention_system" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
 
     async def cog_load(self):
         """Loads all data into memory when the cog is ready."""
@@ -64,6 +76,8 @@ class Detention(commands.Cog):
     @app_commands.describe(action="Start a new detention or release an existing one.", user="The user to manage.", sentence="The sentence to type (required for 'start').", repetitions="How many times to type it (required for 'start').")
     @app_commands.choices(action=[app_commands.Choice(name="Start", value="start"), app_commands.Choice(name="Release", value="release")])
     async def manage_detention(self, interaction: discord.Interaction, action: str, user: discord.Member, sentence: Optional[str] = None, repetitions: Optional[app_commands.Range[int, 1, 100]] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer()
 
         if action == "start":
@@ -106,6 +120,8 @@ class Detention(commands.Cog):
     @app_commands.describe(action="Set the channel or list offenders.", channel="The channel to use (required for 'set-channel').")
     @app_commands.choices(action=[app_commands.Choice(name="Set Channel", value="set-channel"), app_commands.Choice(name="List", value="list")])
     async def config_detention(self, interaction: discord.Interaction, action: str, channel: Optional[discord.TextChannel] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         if action == "set-channel":

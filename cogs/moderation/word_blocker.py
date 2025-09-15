@@ -41,6 +41,18 @@ class WordBlocker(commands.Cog):
         self.performance_stats = defaultdict(int)
         self.whitelist_cache = {}
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the word_blocker feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "word_blocker" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         self.logger.info("Loading optimized word blocker system...")
@@ -168,6 +180,8 @@ class WordBlocker(commands.Cog):
     @app_commands.choices(action=[app_commands.Choice(name="Add", value="add"), app_commands.Choice(name="Remove", value="remove")],
                           scope=[app_commands.Choice(name="Global", value="global"), app_commands.Choice(name="User-Specific", value="user")])
     async def manage_blockword(self, interaction: discord.Interaction, action: str, scope: str, word: str, user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer()
         
         if scope == "user" and not user:
@@ -213,6 +227,8 @@ class WordBlocker(commands.Cog):
     @app_commands.command(name="blockword-list", description="List blocked words.")
     @app_commands.describe(user="Show blocks for a specific user (admin only)")
     async def list_blockwords(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id = str(interaction.guild.id)
         guild_data = self.blocklist_cache.get(guild_id, {})
@@ -237,6 +253,8 @@ class WordBlocker(commands.Cog):
     @app_commands.describe(default_action="Default action for new blocked words")
     @app_commands.choices(default_action=[app_commands.Choice(name="Warn & Delete", value="warn_delete"), app_commands.Choice(name="Delete Only", value="delete")])
     async def configure_settings(self, interaction: discord.Interaction, default_action: Optional[str] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id = str(interaction.guild.id)
         settings = self.blocklist_cache.setdefault(guild_id, {}).setdefault("settings", {})

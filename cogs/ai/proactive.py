@@ -24,6 +24,19 @@ class ProactiveAI(commands.Cog):
         
         self.proactive_chat_task.start()
 
+    # --- Feature Manager Integration ---
+    def _is_feature_enabled_guild(self, guild_id: int) -> bool:
+        """Helper for checking feature status from a guild ID."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        return feature_manager and feature_manager.is_feature_enabled(guild_id, "ai_chat")
+
+    async def _is_feature_enabled_interaction(self, interaction: discord.Interaction) -> bool:
+        """Helper for checking feature status from an interaction."""
+        if not self._is_feature_enabled_guild(interaction.guild_id):
+            await interaction.response.send_message("Hmph. The AI Chat feature is disabled on this server. Enable it in `/feature-manager` first.", ephemeral=True)
+            return False
+        return True
+
     @commands.Cog.listener()
     async def on_ready(self):
         self.settings_cache = await self.data_manager.get_data("proactive_ai_settings")
@@ -80,9 +93,7 @@ class ProactiveAI(commands.Cog):
     def _should_intervene(self, guild_id: str, channel_id: int, context: dict) -> bool:
         """Determine if Tika should speak up based on conversation context."""
         settings = self.settings_cache.get(guild_id, {})
-        if not settings.get('enabled', False):
-            return False
-            
+        
         base_frequency = settings.get('frequency_percent', 25)
         
         # Adjust frequency based on context
@@ -121,7 +132,8 @@ class ProactiveAI(commands.Cog):
             
         for guild_id_str, settings in self.settings_cache.items():
             try:
-                await self._process_guild_proactive(guild_id_str, settings)
+                if self._is_feature_enabled_guild(int(guild_id_str)):
+                    await self._process_guild_proactive(guild_id_str, settings)
             except Exception as e:
                 self.logger.error(f"Error in proactive chat for guild {guild_id_str}: {e}")
 
@@ -203,8 +215,6 @@ class ProactiveAI(commands.Cog):
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Configure", value="config"),
-        app_commands.Choice(name="Enable", value="enable"),
-        app_commands.Choice(name="Disable", value="disable"),
         app_commands.Choice(name="View Status", value="status"),
         app_commands.Choice(name="Test Comment", value="test")
     ])
@@ -215,6 +225,8 @@ class ProactiveAI(commands.Cog):
         channel: Optional[discord.TextChannel] = None, 
         frequency: Optional[app_commands.Range[int, 1, 100]] = None
     ):
+        if not await self._is_feature_enabled_interaction(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         guild_id_str = str(interaction.guild_id)
@@ -233,7 +245,7 @@ class ProactiveAI(commands.Cog):
 
     async def _show_status(self, interaction: discord.Interaction, guild_settings: dict):
         """Show current proactive AI status."""
-        is_enabled = guild_settings.get("enabled", False)
+        is_enabled = self._is_feature_enabled_guild(interaction.guild_id)
         monitored_channel_id = guild_settings.get("channel_id")
         monitored_channel = self.bot.get_channel(monitored_channel_id) if monitored_channel_id else None
         current_freq = guild_settings.get("frequency_percent", 25)

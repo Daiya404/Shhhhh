@@ -328,8 +328,12 @@ class ServerGames(commands.Cog):
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
         """A local check to see if the server_games feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "server_games"):
-            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "server_games" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
@@ -420,7 +424,8 @@ class ServerGames(commands.Cog):
         app_commands.Choice(name="Connect 4", value="connect4")
     ])
     async def play(self, interaction: discord.Interaction, game: str, opponent: Optional[discord.Member] = None):
-        if not await self._is_feature_enabled(interaction): return
+        if not await self._is_feature_enabled(interaction):
+            return
         if game == "hangman":
             await self._start_hangman(interaction)
         elif game in ["tictactoe", "connect4"]:
@@ -462,6 +467,8 @@ class ServerGames(commands.Cog):
         app_commands.Choice(name="Clear All Games", value="clear-all")
     ])
     async def game_admin(self, interaction: discord.Interaction, action: str, user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id_str = str(interaction.guild_id)
         guild_games = self.active_games_cache.get(guild_id_str, {})

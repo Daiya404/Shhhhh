@@ -13,12 +13,21 @@ class AIChat(commands.Cog):
         self.gemini_service = self.bot.gemini_service
         self.conversation_history: Dict[int, List[Dict]] = defaultdict(list)
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the ai_chat feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        feature_name = "ai_chat"
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     @app_commands.command(name="chat", description="Start a new conversation with me (clears your previous chat history).")
     @app_commands.describe(message="Your opening message to start the conversation.")
     async def chat(self, interaction: discord.Interaction, message: str):
-        feature_manager = self.bot.get_cog("FeatureManager")
-        if feature_manager and not feature_manager.is_feature_enabled(interaction.guild_id, "ai_chat"):
-            return await interaction.response.send_message("The AI Chat feature is disabled on this server.", ephemeral=True)
+        if not await self._is_feature_enabled(interaction):
+            return
         if not self.gemini_service or not self.gemini_service.is_ready():
             return await interaction.response.send_message("My AI brain is offline. Try again later.", ephemeral=True)
 

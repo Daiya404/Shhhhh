@@ -55,6 +55,18 @@ class WordGame(commands.Cog):
         
         self.stale_game_task.start()
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the word_game feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "word_game" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     async def cog_load(self):
         """Loads all data and the local dictionary asynchronously."""
         self.logger.info("Loading WordGame data and dictionary into memory...")
@@ -159,6 +171,8 @@ class WordGame(commands.Cog):
         app_commands.Choice(name="Reset All Data", value="reset"),
     ])
     async def wordgame_admin(self, interaction: discord.Interaction, action: str, channel: Optional[discord.TextChannel] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id = str(interaction.guild.id)
         
@@ -190,6 +204,8 @@ class WordGame(commands.Cog):
     @app_commands.command(name="wordgame-stats", description="Show the word game leaderboard or a user's stats.")
     @app_commands.describe(user="The user whose stats you want to see (optional).")
     async def wordgame_stats(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id, target_user = str(interaction.guild.id), user or interaction.user
         guild_scores = self.scores_cache.get(guild_id, {})

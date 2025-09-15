@@ -100,14 +100,43 @@ class Clear(commands.Cog):
         self.bot.tree.add_command(self.set_start_point_menu)
         self.bot.tree.add_command(self.set_end_point_menu)
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the clear_commands feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "clear_commands" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     async def cog_unload(self):
         self.bot.tree.remove_command(self.set_start_point_menu.name, type=self.set_start_point_menu.type)
         self.bot.tree.remove_command(self.set_end_point_menu.name, type=self.set_end_point_menu.type)
 
     async def cog_check(self, ctx: commands.Context) -> bool:
-        if not ctx.guild: return False
+        """
+        This check now runs for ALL prefix commands in this cog (e.g., !tika eat).
+        It now verifies BOTH admin permissions AND the feature manager status.
+        """
+        if not ctx.guild:
+            return False
+
+        # 1. Check for Bot Admin permissions first.
         admin_cog = self.bot.get_cog("BotAdmin")
-        return await admin_cog.check_prefix_command(ctx) if admin_cog else False
+        if not admin_cog or not await admin_cog.check_prefix_command(ctx):
+            return False
+            
+        # 2. Check if the 'clear_commands' feature is enabled.
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(ctx.guild.id, "clear_commands"):
+            # For prefix commands, we usually fail silently instead of sending a message.
+            return False
+
+        # If both checks pass, the command is allowed.
+        return True
 
     # --- Slash Commands ---
     @app_commands.command(name="clear", description="Deletes a specified number of recent messages.")
@@ -115,6 +144,8 @@ class Clear(commands.Cog):
     @is_bot_admin()
     @app_commands.describe(amount="The number of messages to delete (1-100).", user="Optional: Filter to only delete messages from this user.")
     async def slash_clear(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], user: Optional[discord.Member] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         try:
             check = (lambda m: m.author == user) if user else None
@@ -135,6 +166,8 @@ class Clear(commands.Cog):
         app_commands.Choice(name="Regex Pattern (advanced)", value="regex")
     ])
     async def clear_search(self, interaction: discord.Interaction, target: str, match_type: str = "contains", user: Optional[discord.Member] = None, limit: app_commands.Range[int, 1, 10000] = 1000):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.send_message(f"🔍 Searching for messages containing `{target}`...", ephemeral=True)
         try:
             matcher = self._message_matcher.get_matcher(target, match_type)
@@ -158,6 +191,8 @@ class Clear(commands.Cog):
     # --- Context Menu & Prefix Commands for Range Deletion ---
     @is_bot_admin()
     async def set_start_point(self, interaction: discord.Interaction, message: discord.Message):
+        if not await self._is_feature_enabled(interaction):
+            return
         key = f"{interaction.user.id}:{interaction.channel_id}"
         self.range_points[key] = message.id
         await interaction.response.send_message(f"✅ Start point set. Now use `Set as Deletion End` on another message.", ephemeral=True)
@@ -174,6 +209,8 @@ class Clear(commands.Cog):
 
     @is_bot_admin()
     async def set_end_point(self, interaction: discord.Interaction, message: discord.Message):
+        if not await self._is_feature_enabled(interaction):
+            return
         key = f"{interaction.user.id}:{interaction.channel_id}"
         start_id = self.range_points.pop(key, None)
         if not start_id: return await interaction.response.send_message("❌ You need to set a start point first!", ephemeral=True)

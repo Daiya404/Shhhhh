@@ -48,6 +48,18 @@ class AutoReply(commands.Cog):
             "cache_hits": 0,
             "regex_misses": 0
         }
+    
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the auto_reply feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "auto_reply" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -340,6 +352,8 @@ class AutoReply(commands.Cog):
         app_commands.Choice(name="Remove", value="remove")
     ])
     async def manage_autoreply(self, interaction: discord.Interaction, action: str, trigger: str, reply: Optional[str] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer()
         
         if action == "add" and not reply:
@@ -411,6 +425,8 @@ class AutoReply(commands.Cog):
         alternatives="The new alternative words, separated by spaces."
     )
     async def add_alts_bulk(self, interaction: discord.Interaction, main_trigger: str, alternatives: str):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer()
         
         guild_id = str(interaction.guild_id)
@@ -453,6 +469,8 @@ class AutoReply(commands.Cog):
 
     @app_commands.command(name="autoreply-list", description="List all configured auto-replies with detailed information.")
     async def list_replies(self, interaction: discord.Interaction):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         guild_id = str(interaction.guild.id)
@@ -494,6 +512,8 @@ class AutoReply(commands.Cog):
     @app_commands.command(name="autoreply-stats", description="View auto-reply performance statistics.")
     @is_bot_admin()
     async def view_stats(self, interaction: discord.Interaction):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         embed = discord.Embed(
@@ -539,6 +559,8 @@ class AutoReply(commands.Cog):
     @is_bot_admin()
     @app_commands.describe(test_message="The message content to test.")
     async def test_trigger(self, interaction: discord.Interaction, test_message: str):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         
         guild_id = str(interaction.guild.id)

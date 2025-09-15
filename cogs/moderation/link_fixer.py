@@ -51,6 +51,18 @@ class LinkFixer(commands.Cog):
         self._save_lock = asyncio.Lock()
         self.save_task: Optional[asyncio.Task] = None
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the link_fixer feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "link_fixer" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     # --- COG LIFECYCLE (SETUP & SHUTDOWN) ---
     async def cog_load(self):
         """Called when the cog is loaded. Builds the combined regex and starts background tasks."""
@@ -161,6 +173,8 @@ class LinkFixer(commands.Cog):
     @app_commands.describe(website="The website you want to configure for yourself.", state="Whether to turn fixing 'On' or 'Off' for your links.")
     @app_commands.choices(website=[app_commands.Choice(name=name.title(), value=name) for name in sorted(all_websites.keys())], state=[app_commands.Choice(name="On", value="on"), app_commands.Choice(name="Off", value="off")])
     async def manage_linkfixer_settings(self, interaction: discord.Interaction, website: str, state: str):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id, user_id = str(interaction.guild.id), str(interaction.user.id)
         

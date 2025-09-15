@@ -73,6 +73,19 @@ class CopyChapel(commands.Cog):
         if config:
             config.setdefault("threshold", 2)
         return config
+    
+    async def _is_feature_enabled_interaction(self, interaction: discord.Interaction) -> bool:
+        """Helper for checking feature status from an interaction."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "copy_chapel"):
+            await interaction.response.send_message("Hmph. The Copy Chapel feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
+    def _is_feature_enabled_guild(self, guild_id: int) -> bool:
+        """Helper for checking feature status from a guild ID."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        return feature_manager and feature_manager.is_feature_enabled(guild_id, "copy_chapel")
 
     # --- Event Listeners ---
     @commands.Cog.listener()
@@ -85,7 +98,7 @@ class CopyChapel(commands.Cog):
 
     async def _handle_reaction(self, payload: discord.RawReactionActionEvent):
         """Optimized reaction handler."""
-        if not payload.guild_id: 
+        if not self._is_feature_enabled_guild(payload.guild_id):
             return
         
         config = self._get_config(payload.guild_id)
@@ -132,6 +145,8 @@ class CopyChapel(commands.Cog):
                           channel: Optional[Union[discord.TextChannel, discord.Thread]] = None, 
                           emote: Optional[str] = None, 
                           threshold: Optional[app_commands.Range[int, 1, 100]] = None):
+        if not await self._is_feature_enabled_interaction(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id = str(interaction.guild_id)
         

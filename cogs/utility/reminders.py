@@ -38,6 +38,18 @@ class Reminders(commands.Cog):
         self.main_task: Optional[asyncio.Task] = None
         self.save_task: Optional[asyncio.Task] = None
 
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the reminders feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "reminders" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
+            return False
+        return True
+
     # --- COG LIFECYCLE (SETUP & SHUTDOWN) ---
     async def cog_load(self):
         """Called when the cog is loaded. Loads data and starts background tasks."""
@@ -122,6 +134,8 @@ class Reminders(commands.Cog):
     @app_commands.describe(action="What you want to do.", when="When to remind you (e.g., '1d 12h', 'tomorrow').", message="What to remind you about.", reminder_id="The ID of the reminder to delete.", repeat="Set a repeating interval.")
     @app_commands.choices(action=[app_commands.Choice(name="Set", value="set"), app_commands.Choice(name="List", value="list"), app_commands.Choice(name="Delete", value="delete")], repeat=[app_commands.Choice(name="Daily", value="daily"), app_commands.Choice(name="Weekly", value="weekly"), app_commands.Choice(name="Monthly", value="monthly")])
     async def manage_reminders(self, interaction: discord.Interaction, action: str, when: Optional[str] = None, message: Optional[str] = None, reminder_id: Optional[str] = None, repeat: Optional[app_commands.Choice[str]] = None):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
 
         if action == "set":
@@ -162,6 +176,8 @@ class Reminders(commands.Cog):
     @app_commands.describe(location="DM (private) or the original channel (public).")
     @app_commands.choices(location=[app_commands.Choice(name="Direct Message (DM)", value="dm"), app_commands.Choice(name="Original Channel", value="channel")])
     async def set_delivery(self, interaction: discord.Interaction, location: app_commands.Choice[str]):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         user_settings = self.user_settings_cache.setdefault(str(interaction.guild_id), {}).setdefault(str(interaction.user.id), {})
         user_settings["remind_in_channel"] = (location.value == "channel")
@@ -172,6 +188,8 @@ class Reminders(commands.Cog):
     @app_commands.default_permissions(administrator=True)
     @is_bot_admin()
     async def admin_delete(self, interaction: discord.Interaction, reminder_id: str):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         if self._remove_reminder(reminder_id):
             await interaction.followup.send(self.personality["admin_deleted"])

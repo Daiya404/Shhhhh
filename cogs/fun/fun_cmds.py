@@ -138,12 +138,16 @@ class FunCommands(commands.Cog):
             r'(?::\d+)?'
             r'(?:/?|[/?]\S+)$', re.IGNORECASE
         )
-
+    
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
-        """Check if the fun_commands feature is enabled."""
+        """A local check to see if the fun_commands feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "fun_commands"):
-            await interaction.response.send_message("The Fun Commands feature is disabled on this server.", ephemeral=True)
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "fun_commands" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
@@ -203,7 +207,7 @@ class FunCommands(commands.Cog):
 
     @app_commands.command(name="coinflip", description="Flip a coin and see if you get heads or tails!")
     async def coinflip(self, interaction: discord.Interaction):
-        if not await self._is_feature_enabled(interaction): 
+        if not await self._is_feature_enabled(interaction):
             return
         
         flipping_url = self._get_random_embed_url(interaction, "coinflip")
@@ -308,9 +312,8 @@ class FunCommands(commands.Cog):
         app_commands.Choice(name="✂️ Scissors", value="scissors")
     ])
     async def rps(self, interaction: discord.Interaction, choice: app_commands.Choice[str]):
-        if not await self._is_feature_enabled(interaction): 
+        if not await self._is_feature_enabled(interaction):
             return
-        
         user_choice = choice.value
         bot_choice = random.choice(["rock", "paper", "scissors"])
         
@@ -379,6 +382,8 @@ class FunCommands(commands.Cog):
     )
     async def fun_admin(self, interaction: discord.Interaction, action: app_commands.Choice[str], 
                        command: app_commands.Choice[str], url: Optional[str] = None):
+        if not await self._is_feature_enabled(interaction):
+                return
         await interaction.response.defer(ephemeral=True)
         
         guild_id = str(interaction.guild_id)
@@ -455,6 +460,8 @@ class FunCommands(commands.Cog):
         app_commands.Choice(name="RPS", value="rps")
     ])
     async def fun_embeds_selection(self, interaction: discord.Interaction, command: app_commands.Choice[str]):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         command_name = command.value
         
