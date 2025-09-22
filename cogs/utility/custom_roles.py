@@ -112,7 +112,7 @@ class CustomRoles(commands.Cog):
     @app_commands.command(name="personal-role", description="Create or update your personal custom role.")
     @app_commands.describe(
         action="Whether to create a new role or update an existing one",
-        name="The name for your role (required for create)",
+        name="The name for the role (required for create, optional for update)",
         color="The color in hex format (e.g., #A020F0)",
         primary="Make this your primary role? (sets name color)",
         role="The existing role to update (required for update)"
@@ -138,7 +138,7 @@ class CustomRoles(commands.Cog):
         if action == "create":
             await self._handle_create_role(interaction, name, color, primary)
         elif action == "update":
-            await self._handle_update_role(interaction, role, color, primary)
+            await self._handle_update_role(interaction, role, name, color, primary)
 
     async def _handle_create_role(self, interaction: discord.Interaction, name: Optional[str], color: Optional[str], primary: Optional[bool]):
         if not name:
@@ -185,7 +185,7 @@ class CustomRoles(commands.Cog):
             self.logger.error("Error in personal-role create", exc_info=e)
             await interaction.followup.send("❌ Something went wrong.")
 
-    async def _handle_update_role(self, interaction: discord.Interaction, role: Optional[str], color: Optional[str], primary: Optional[bool]):
+    async def _handle_update_role(self, interaction: discord.Interaction, role: Optional[str], name: Optional[str], color: Optional[str], primary: Optional[bool]):
         if not role:
             return await interaction.followup.send("❌ You must select a role to update.")
         
@@ -201,6 +201,12 @@ class CustomRoles(commands.Cog):
 
         edit_kwargs, changes = {}, []
         
+        if name:
+            if not self._validate_role_name(name):
+                return await interaction.followup.send(self.personality["invalid_name"])
+            edit_kwargs["name"] = name
+            changes.append(f"name to **{name}**")
+
         if color:
             discord_color = self._hex_to_discord_color(color)
             if discord_color is None:
@@ -209,6 +215,7 @@ class CustomRoles(commands.Cog):
             changes.append(f"color to `{color}`")
 
         try:
+            old_name = role_obj.name
             if edit_kwargs:
                 await role_obj.edit(**edit_kwargs)
             
@@ -227,7 +234,7 @@ class CustomRoles(commands.Cog):
             if not changes:
                 return await interaction.followup.send("❌ You didn't specify anything to change.")
             
-            await interaction.followup.send(f"✅ Updated role **{role_obj.name}**: " + ", ".join(changes) + ".")
+            await interaction.followup.send(f"✅ Updated role **{old_name}**: " + ", ".join(changes) + ".")
         except discord.Forbidden:
             await interaction.followup.send("❌ I can't do that. My role is probably too low.")
         except Exception as e:
