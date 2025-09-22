@@ -3,7 +3,8 @@
     "link_fixer": true,
     "fun_commands": true,
     "word_game": true,
-    "clear_commands": true
+    "clear_commands": true,
+    "ai_chat": true
   },
   "932255513893290024": {
     "link_fixer": false

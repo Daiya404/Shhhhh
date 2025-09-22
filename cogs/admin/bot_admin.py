@@ -1,38 +1,30 @@
 # cogs/admin/bot_admin.py
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
 import logging
-from typing import Optional
+from typing import Optional, Dict, Set
+import asyncio
 
 from config.personalities import PERSONALITY_RESPONSES
 
-# --- THE NEW, FAST DECORATOR ---
+# Global cache to avoid dependency on cog instance
+_admin_cache: Dict[str, Set[int]] = {}
+_cache_lock = asyncio.Lock()
+
 def is_bot_admin():
     """
-    A fast, cached custom decorator that checks if a user is a bot admin.
-    It relies on a background task in the BotAdmin cog to maintain a cache,
-    ensuring the check itself is instantaneous and avoids timeouts.
+    Ultra-fast decorator that checks bot admin permissions.
+    Uses a global in-memory cache with instant lookups.
     """
-    
     async def predicate(interaction: discord.Interaction) -> bool:
-        """The actual check logic, now using a cache."""
-        # Rule 1: Server Admins are always bot admins. This check is synchronous and fast.
+        # Rule 1: Server administrators are always bot admins (fastest check)
         if interaction.user.guild_permissions.administrator:
             return True
         
-        # Get the cog to access the cache.
-        cog = interaction.client.get_cog('BotAdmin')
-        if not cog:
-            # This should ideally never happen if the cog is loaded.
-            # We no longer send a message here to prevent other errors.
-            # The check will just fail safely.
-            logging.warning("BotAdmin cog not found for permission check.")
-            return False
-            
-        # Rule 2: Perform a FAST, SYNCHRONOUS check against the cache.
-        # NO `await` here means NO timeout!
-        guild_admins = cog.admin_cache.get(str(interaction.guild_id), [])
+        # Rule 2: Fast cache lookup (no async operations)
+        guild_id_str = str(interaction.guild_id)
+        guild_admins = _admin_cache.get(guild_id_str, set())
         
         return interaction.user.id in guild_admins
     
@@ -45,92 +37,152 @@ class BotAdmin(commands.Cog):
         self.logger = logging.getLogger(__name__)
         self.personality = PERSONALITY_RESPONSES["bot_admin"]
         self.data_manager = self.bot.data_manager
+        
+        # Initialize cache immediately on cog load
+        self._cache_ready = asyncio.Event()
 
-        # --- NEW: Initialize the admin cache ---
-        self.admin_cache = {}
-        # --- NEW: Start the background task to update the cache ---
-        self.update_admin_cache_task.start()
+    async def cog_load(self):
+        """Load admin data once when cog starts."""
+        await self._load_admin_cache()
+        self._cache_ready.set()
+        self.logger.info("Bot admin cache loaded and ready.")
 
-    def cog_unload(self):
-        """Clean up the task when the cog is unloaded."""
-        self.update_admin_cache_task.cancel()
-
-    # --- NEW: Background task to keep the admin cache fresh ---
-    @tasks.loop(seconds=60)
-    async def update_admin_cache_task(self):
-        """Periodically loads bot admin data into a fast in-memory cache."""
+    async def _load_admin_cache(self):
+        """Load admin data into the global cache."""
+        global _admin_cache
+        
         try:
-            # The slow I/O operation happens here, safely in the background.
-            self.admin_cache = await self.data_manager.get_data("bot_admins")
+            async with _cache_lock:
+                # Load data once
+                bot_admins_data = await self.data_manager.get_data("bot_admins")
+                
+                # Convert to sets for O(1) lookups
+                _admin_cache = {
+                    guild_id: set(user_ids) 
+                    for guild_id, user_ids in bot_admins_data.items()
+                }
+                
+                self.logger.info(f"Loaded {len(_admin_cache)} guild admin configurations")
+                
         except Exception as e:
-            self.logger.error(f"Failed to update bot admin cache: {e}")
+            self.logger.error(f"Failed to load bot admin cache: {e}")
+            _admin_cache = {}
 
-    @update_admin_cache_task.before_loop
-    async def before_update_cache(self):
-        """Ensures the bot is ready before the task starts."""
-        await self.bot.wait_until_ready()
-        self.logger.info("Starting background task for bot admin cache.")
+    async def _update_cache_for_guild(self, guild_id: str, user_ids: list):
+        """Update cache for a specific guild immediately."""
+        global _admin_cache
+        
+        async with _cache_lock:
+            if user_ids:
+                _admin_cache[guild_id] = set(user_ids)
+            else:
+                # Remove empty guild entries
+                _admin_cache.pop(guild_id, None)
 
-    # --- PREFIX COMMAND CHECK (Can also be optimized to use the cache) ---
     async def check_prefix_command(self, ctx: commands.Context) -> bool:
-        """The core logic for checking if a user is a bot admin for prefix commands."""
+        """Fast check for prefix commands."""
         if ctx.author.guild_permissions.administrator:
             return True
         
-        # Use the fast cache for prefix commands too
-        guild_admins = self.admin_cache.get(str(ctx.guild.id), [])
+        # Wait for cache to be ready if needed
+        await self._cache_ready.wait()
+        
+        guild_admins = _admin_cache.get(str(ctx.guild.id), set())
         return ctx.author.id in guild_admins
 
     @app_commands.command(name="botadmin", description="Manage who can use Tika's admin commands.")
     @app_commands.default_permissions(administrator=True)
-    @is_bot_admin() # This command now uses its own fast decorator
-    @app_commands.describe(action="Add, remove, or list admins.", user="The user to manage (not required for list).")
+    @is_bot_admin()
+    @app_commands.describe(
+        action="Add, remove, or list admins.", 
+        user="The user to manage (not required for list)."
+    )
     @app_commands.choices(action=[
         app_commands.Choice(name="Add", value="add"),
         app_commands.Choice(name="Remove", value="remove"),
         app_commands.Choice(name="List", value="list"),
     ])
     async def manage_admins(self, interaction: discord.Interaction, action: str, user: Optional[discord.Member] = None):
-        # We can defer here just in case the data saving is slow, but it's not strictly necessary to fix the timeout.
-        await interaction.response.defer(ephemeral=True)
-
+        # Only defer for operations that might take time (data saving)
+        if action in ["add", "remove"]:
+            await interaction.response.defer(ephemeral=True)
+        
         if action in ["add", "remove"] and not user:
-            await interaction.followup.send("You must specify a user for that action.", ephemeral=True)
+            response = "You must specify a user for that action."
+            if action in ["add", "remove"]:
+                await interaction.followup.send(response, ephemeral=True)
+            else:
+                await interaction.response.send_message(response, ephemeral=True)
             return
 
         guild_id = str(interaction.guild.id)
-        # We still need to fetch the real data to modify it
-        bot_admins_data = await self.data_manager.get_data("bot_admins")
-        guild_admins = bot_admins_data.setdefault(guild_id, [])
+        
+        # Get current data from cache first
+        current_admins = _admin_cache.get(guild_id, set()).copy()
 
         if action == "add":
-            if user.id in guild_admins:
+            if user.id in current_admins:
                 await interaction.followup.send(self.personality["already_admin"], ephemeral=True)
                 return
-            guild_admins.append(user.id)
-            await self.data_manager.save_data("bot_admins", bot_admins_data)
-            # --- NEW: Immediately update the cache after making a change ---
-            self.admin_cache = bot_admins_data
-            await interaction.followup.send(self.personality["admin_added"].format(user=user.display_name))
+            
+            # Update cache immediately
+            new_admins = current_admins | {user.id}
+            await self._update_cache_for_guild(guild_id, list(new_admins))
+            
+            # Save to persistent storage (can be slow)
+            try:
+                bot_admins_data = await self.data_manager.get_data("bot_admins")
+                bot_admins_data[guild_id] = list(new_admins)
+                await self.data_manager.save_data("bot_admins", bot_admins_data)
+                
+                await interaction.followup.send(
+                    self.personality["admin_added"].format(user=user.display_name)
+                )
+            except Exception as e:
+                # Rollback cache on save failure
+                await self._update_cache_for_guild(guild_id, list(current_admins))
+                self.logger.error(f"Failed to save admin data: {e}")
+                await interaction.followup.send("Failed to save changes. Please try again.", ephemeral=True)
         
         elif action == "remove":
-            if user.id not in guild_admins:
+            if user.id not in current_admins:
                 await interaction.followup.send(self.personality["not_admin"], ephemeral=True)
                 return
-            guild_admins.remove(user.id)
-            if not guild_admins: del bot_admins_data[guild_id]
-            await self.data_manager.save_data("bot_admins", bot_admins_data)
-            # --- NEW: Immediately update the cache after making a change ---
-            self.admin_cache = bot_admins_data
-            await interaction.followup.send(self.personality["admin_removed"].format(user=user.display_name))
+            
+            # Update cache immediately
+            new_admins = current_admins - {user.id}
+            await self._update_cache_for_guild(guild_id, list(new_admins))
+            
+            # Save to persistent storage
+            try:
+                bot_admins_data = await self.data_manager.get_data("bot_admins")
+                if new_admins:
+                    bot_admins_data[guild_id] = list(new_admins)
+                else:
+                    bot_admins_data.pop(guild_id, None)
+                    
+                await self.data_manager.save_data("bot_admins", bot_admins_data)
+                
+                await interaction.followup.send(
+                    self.personality["admin_removed"].format(user=user.display_name)
+                )
+            except Exception as e:
+                # Rollback cache on save failure
+                await self._update_cache_for_guild(guild_id, list(current_admins))
+                self.logger.error(f"Failed to save admin data: {e}")
+                await interaction.followup.send("Failed to save changes. Please try again.", ephemeral=True)
 
         elif action == "list":
-            # Use the live data for the list command to ensure it's up-to-date
-            if not guild_admins:
-                await interaction.followup.send(self.personality["no_admins"], ephemeral=True)
+            if not current_admins:
+                await interaction.response.send_message(self.personality["no_admins"], ephemeral=True)
                 return
-            embed = discord.Embed(title="Delegated Bot Admins", color=discord.Color.blue(), description="\n".join([f"<@{uid}>" for uid in guild_admins]))
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            embed = discord.Embed(
+                title="Delegated Bot Admins", 
+                color=discord.Color.blue(), 
+                description="\n".join([f"<@{uid}>" for uid in current_admins])
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(BotAdmin(bot))

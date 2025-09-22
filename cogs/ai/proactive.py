@@ -24,19 +24,6 @@ class ProactiveAI(commands.Cog):
         
         self.proactive_chat_task.start()
 
-    # --- Feature Manager Integration ---
-    def _is_feature_enabled_guild(self, guild_id: int) -> bool:
-        """Helper for checking feature status from a guild ID."""
-        feature_manager = self.bot.get_cog("FeatureManager")
-        return feature_manager and feature_manager.is_feature_enabled(guild_id, "ai_chat")
-
-    async def _is_feature_enabled_interaction(self, interaction: discord.Interaction) -> bool:
-        """Helper for checking feature status from an interaction."""
-        if not self._is_feature_enabled_guild(interaction.guild_id):
-            await interaction.response.send_message("Hmph. The AI Chat feature is disabled on this server. Enable it in `/feature-manager` first.", ephemeral=True)
-            return False
-        return True
-
     @commands.Cog.listener()
     async def on_ready(self):
         self.settings_cache = await self.data_manager.get_data("proactive_ai_settings")
@@ -93,7 +80,9 @@ class ProactiveAI(commands.Cog):
     def _should_intervene(self, guild_id: str, channel_id: int, context: dict) -> bool:
         """Determine if Tika should speak up based on conversation context."""
         settings = self.settings_cache.get(guild_id, {})
-        
+        if not settings.get('enabled', False):
+            return False
+            
         base_frequency = settings.get('frequency_percent', 25)
         
         # Adjust frequency based on context
@@ -132,8 +121,7 @@ class ProactiveAI(commands.Cog):
             
         for guild_id_str, settings in self.settings_cache.items():
             try:
-                if self._is_feature_enabled_guild(int(guild_id_str)):
-                    await self._process_guild_proactive(guild_id_str, settings)
+                await self._process_guild_proactive(guild_id_str, settings)
             except Exception as e:
                 self.logger.error(f"Error in proactive chat for guild {guild_id_str}: {e}")
 
@@ -215,6 +203,8 @@ class ProactiveAI(commands.Cog):
     )
     @app_commands.choices(action=[
         app_commands.Choice(name="Configure", value="config"),
+        app_commands.Choice(name="Enable", value="enable"),
+        app_commands.Choice(name="Disable", value="disable"),
         app_commands.Choice(name="View Status", value="status"),
         app_commands.Choice(name="Test Comment", value="test")
     ])
@@ -225,8 +215,6 @@ class ProactiveAI(commands.Cog):
         channel: Optional[discord.TextChannel] = None, 
         frequency: Optional[app_commands.Range[int, 1, 100]] = None
     ):
-        if not await self._is_feature_enabled_interaction(interaction):
-            return
         await interaction.response.defer(ephemeral=True)
         
         guild_id_str = str(interaction.guild_id)
@@ -245,7 +233,7 @@ class ProactiveAI(commands.Cog):
 
     async def _show_status(self, interaction: discord.Interaction, guild_settings: dict):
         """Show current proactive AI status."""
-        is_enabled = self._is_feature_enabled_guild(interaction.guild_id)
+        is_enabled = guild_settings.get("enabled", False)
         monitored_channel_id = guild_settings.get("channel_id")
         monitored_channel = self.bot.get_channel(monitored_channel_id) if monitored_channel_id else None
         current_freq = guild_settings.get("frequency_percent", 25)
@@ -341,23 +329,21 @@ class ProactiveAI(commands.Cog):
 
     async def _test_proactive(self, interaction: discord.Interaction, guild_settings: dict):
         """Test proactive AI by generating a comment on recent messages."""
-        await interaction.response.send_message("🤔 Analyzing conversation in the channel...", ephemeral=True)
-        
         if not self.gemini_service.is_ready():
-            return await interaction.edit_original_response(content="❌ My AI brain is offline. Can't test anything right now.")
+            return await interaction.followup.send("❌ My AI brain is offline. Can't test anything right now.")
             
         channel_id = guild_settings.get("channel_id")
         if not channel_id:
-            return await interaction.edit_original_response(content="❌ No channel configured. Use the `config` action first.")
+            return await interaction.followup.send("❌ No channel configured. Use the `config` action first.")
             
         channel = self.bot.get_channel(channel_id)
         if not channel:
-            return await interaction.edit_original_response(content="❌ Configured channel not found. It might have been deleted.")
+            return await interaction.followup.send("❌ Configured channel not found. It might have been deleted.")
 
         try:
             messages = [f"{msg.author.display_name}: {msg.clean_content}" async for msg in channel.history(limit=10) if not msg.author.bot and msg.clean_content.strip()]
             if len(messages) < 3:
-                return await interaction.edit_original_response(content=f"❌ Not enough conversation in {channel.mention} to generate a test comment.")
+                return await interaction.followup.send(f"❌ Not enough conversation in {channel.mention} to generate a test comment.")
                 
             messages.reverse()
             
@@ -367,13 +353,13 @@ class ProactiveAI(commands.Cog):
                 embed = discord.Embed(title="🧪 Test Proactive Comment", description=f"Based on recent conversation in {channel.mention}:", color=discord.Color.blue())
                 embed.add_field(name="Generated Comment:", value=f'"{comment}"', inline=False)
                 embed.set_footer(text="This is just a test - the comment wasn't actually sent")
-                await interaction.edit_original_response(content=None, embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.edit_original_response(content="❌ Couldn't generate a test comment. The conversation might be too boring.")
+                await interaction.followup.send("❌ Couldn't generate a test comment. The conversation might be too boring.")
                 
         except Exception as e:
             self.logger.error(f"Test proactive comment failed: {e}")
-            await interaction.edit_original_response(content="❌ Something went wrong during the test. Typical.")
+            await interaction.followup.send("❌ Something went wrong during the test. Typical.")
 
 async def setup(bot):
     if hasattr(bot, 'gemini_service') and bot.gemini_service and bot.gemini_service.is_ready():
