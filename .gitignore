@@ -1,9 +1,0 @@
-# .gitignore
-__pycache__/
-*.log
-*.env
-*.sqlite3
-*.zip
-
-# Ignore the entire secrets folder
-secrets/
