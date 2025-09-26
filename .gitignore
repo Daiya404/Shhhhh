@@ -3,5 +3,5 @@ __pycache__/
 *.pyc
 
 # Ignore all data and secret files
-/data/
+data/
 secrets/
