@@ -1,4 +1,5 @@
-# core/bot.py
+# core/bot.py - Enhanced message handling with AI reply tracking
+
 from typing import Optional
 import discord
 from discord.ext import commands
@@ -48,11 +49,14 @@ class TikaBot(commands.Bot):
         # Bot state tracking
         self.command_usage = defaultdict(lambda: defaultdict(list))
         self.start_time: Optional[datetime] = None
-        self.last_message_times = {}  # Track when users last messaged
-        self.typing_delays = {}  # Add realistic typing delays
+        self.last_message_times = {}
+        self.typing_delays = {}
         
         # Message handling state
-        self.processing_messages = set()  # Prevent duplicate processing
+        self.processing_messages = set()
+        
+        # This set is crucial for distinguishing AI chat messages from feature messages.
+        self.ai_message_ids = set()
 
     async def close(self):
         await super().close()
@@ -98,17 +102,16 @@ class TikaBot(commands.Bot):
     def _calculate_realistic_typing_time(self, response_length: int) -> float:
         """Calculate realistic typing time based on response length."""
         base_time = 0.5
-        typing_speed = 0.04  # Slightly faster than before
+        typing_speed = 0.04
         thinking_time = min(1.5, response_length * 0.015)
         return base_time + (response_length * typing_speed) + thinking_time
 
-    async def _send_with_realistic_timing(self, messageable, content: str, mention_author: bool = False, reference_message=None):
-        """Send message with realistic typing delays and proper error handling."""
+    async def _send_with_realistic_timing(self, messageable, content: str, mention_author: bool = False, reference_message=None, is_ai_response: bool = False):
+        """Send message with realistic timing and track AI responses."""
         if not content or len(content.strip()) == 0:
             self.logger.warning("Attempted to send empty message")
             return None
             
-        # Ensure message fits Discord's limits
         if len(content) > 2000:
             self.logger.warning(f"Message too long ({len(content)} chars), truncating")
             content = content[:1950] + "\n\n...and I'm cutting myself off there."
@@ -117,22 +120,37 @@ class TikaBot(commands.Bot):
         
         try:
             async with messageable.typing():
-                await asyncio.sleep(min(typing_time, 4.0))  # Cap at 4 seconds max
+                await asyncio.sleep(min(typing_time, 4.0))
                 
                 if reference_message:
-                    return await reference_message.reply(content, mention_author=mention_author)
+                    sent_message = await reference_message.reply(content, mention_author=mention_author)
                 else:
-                    return await messageable.send(content)
+                    sent_message = await messageable.send(content)
+                
+                # Only messages from the AI personality should be added to this set.
+                if is_ai_response and sent_message:
+                    self.ai_message_ids.add(sent_message.id)
+                    if len(self.ai_message_ids) > 1000:
+                        oldest_ids = list(self.ai_message_ids)[:100]
+                        for old_id in oldest_ids:
+                            self.ai_message_ids.discard(old_id)
+                
+                return sent_message
                     
         except discord.HTTPException as e:
-            if e.code == 50035:  # Invalid form body (message too long)
+            if e.code == 50035:
                 self.logger.error(f"Discord message too long error: {len(content)} characters")
                 truncated = content[:1500] + "\n\n...I have to cut this short. Discord won't let me finish."
                 try:
                     if reference_message:
-                        return await reference_message.reply(truncated, mention_author=mention_author)
+                        sent_message = await reference_message.reply(truncated, mention_author=mention_author)
                     else:
-                        return await messageable.send(truncated)
+                        sent_message = await messageable.send(truncated)
+                    
+                    if is_ai_response and sent_message:
+                        self.ai_message_ids.add(sent_message.id)
+                    
+                    return sent_message
                 except Exception as retry_error:
                     self.logger.error(f"Failed to send even truncated message: {retry_error}")
                     return None
@@ -147,11 +165,9 @@ class TikaBot(commands.Bot):
             return None
 
     async def on_message(self, message: discord.Message):
-        # Ignore bot messages and DMs
         if message.author.bot or not message.guild:
             return
         
-        # Prevent duplicate processing
         message_key = f"{message.guild.id}-{message.id}"
         if message_key in self.processing_messages:
             return
@@ -163,42 +179,59 @@ class TikaBot(commands.Bot):
         finally:
             self.processing_messages.discard(message_key)
 
+    def _is_reply_to_ai_message(self, message: discord.Message) -> bool:
+        """
+        STRICTLY checks if a message is a reply to another message that was
+        specifically marked as an AI-generated conversational response.
+        """
+        if not (message.reference and isinstance(message.reference.resolved, discord.Message)):
+            return False
+
+        replied_message = message.reference.resolved
+        is_author_bot = (replied_message.author == self.user)
+        is_in_ai_set = (replied_message.id in self.ai_message_ids)
+        
+        return is_author_bot and is_in_ai_set
+
     async def _process_message(self, message: discord.Message):
-        """Main message processing logic with proper error handling."""
+        """Main message processing logic with a strict order of operations."""
         feature_manager = self.get_cog("FeatureManager")
         if not feature_manager:
             return
 
-        # Track message timing for better interaction
-        self.last_message_times[message.author.id] = discord.utils.utcnow()
-
-        # Check for direct mentions
         is_mention = self.user.mentioned_in(message) and not message.mention_everyone
-        is_reply = (message.reference and 
-                   isinstance(message.reference.resolved, discord.Message) and 
-                   message.reference.resolved.author == self.user)
+        is_valid_ai_reply = self._is_reply_to_ai_message(message)
+        
+        # --- 1. AI Interaction Logic ---
 
-        # Handle AI interactions first (highest priority)
+        # Case A: It's a valid reply to a previous AI conversation message.
+        if is_valid_ai_reply:
+            self.logger.info("AI trigger: Valid reply to a conversational message.")
+            return await self._handle_ai_conversation(message, is_mention=is_mention)
+
+        # Case B: It's a mention, but we must filter out replies to our own functional messages.
         if is_mention:
-            content = message.clean_content.replace(f"@{self.user.name}", "").strip()
+            is_reply_to_bot_at_all = (message.reference and
+                                      isinstance(message.reference.resolved, discord.Message) and
+                                      message.reference.resolved.author == self.user)
             
-            if content.lower().startswith(("summarize", "summary")):
-                await self._handle_summarize_request(message)
+            # If it's a mention but NOT a reply to one of our own messages, it's a valid trigger.
+            if not is_reply_to_bot_at_all:
+                self.logger.info("AI trigger: Mention that is not a reply to the bot.")
+                if message.clean_content.replace(f"@{self.user.name}", "").strip().lower().startswith(("summarize", "summary")):
+                    return await self._handle_summarize_request(message)
+                else:
+                    return await self._handle_ai_conversation(message, is_mention=True)
+            else:
+                # It's a mention AND a reply to one of our messages, but we already know from
+                # `is_valid_ai_reply` that it's NOT a conversational one. So, we ignore it.
+                self.logger.info("Ignoring mention because it is a reply to a non-conversational bot message.")
                 return
-                
-            # Regular AI conversation
-            await self._handle_ai_conversation(message, is_mention=True)
-            return
 
-        if is_reply and feature_manager.is_feature_enabled(message.guild.id, "ai_chat"):
-            await self._handle_ai_conversation(message, is_mention=False)
-            return
-
-        # Handle other features (in order of priority)
+        # --- 2. Feature Block (runs only if no AI interaction occurred) ---
         if feature_manager.is_feature_enabled(message.guild.id, "detention_system"):
             if (detention_cog := self.get_cog("Detention")) and await detention_cog.is_user_detained(message):
-                await detention_cog.handle_detention_message(message)
-                return
+                return await detention_cog.handle_detention_message(message)
 
         if feature_manager.is_feature_enabled(message.guild.id, "word_blocker"):
             if (word_blocker_cog := self.get_cog("WordBlocker")) and await word_blocker_cog.check_and_handle_message(message):
@@ -216,16 +249,13 @@ class TikaBot(commands.Bot):
             if (word_game_cog := self.get_cog("WordGame")) and await word_game_cog.check_word_game_message(message):
                 return
         
-        # Process commands last
-        ctx = await self.get_context(message)
-        if ctx.valid:
-            await self.invoke(ctx)
+        # --- 3. Command Block (Lowest Priority) ---
+        await self.process_commands(message)
             
     async def on_ready(self):
         if not self.start_time:
             self.start_time = discord.utils.utcnow()
             
-        # Set a more personality-appropriate status
         status_messages = [
             "Doing things. Perfectly, of course.",
             "Organizing my thoughts. Again.",
@@ -247,130 +277,98 @@ class TikaBot(commands.Bot):
         """Handle conversation summarization with improved error handling."""
         feature_manager = self.get_cog("FeatureManager")
         if feature_manager and not feature_manager.is_feature_enabled(message.guild.id, "ai_summarize"):
-            responses = [
-                "The summarize feature is disabled here. Not my problem.",
-                "I'm not allowed to summarize on this server. Take it up with the admins.",
-                "Summarizing is turned off here. Sorry, I guess."
-            ]
+            responses = [ "The summarize feature is disabled here. Not my problem." ]
             return await self._send_with_realistic_timing(
                 message.channel, random.choice(responses), 
-                reference_message=message, mention_author=False
+                reference_message=message, mention_author=False, is_ai_response=True
             )
             
         if not self.gemini_service or not self.gemini_service.is_ready():
-            error_responses = [
-                "My brain is offline. Can't summarize anything right now.",
-                "Nothing's working up here. Try again later.",
-                "I literally can't think right now. Sorry."
-            ]
+            error_responses = [ "My brain is offline. Can't summarize anything right now." ]
             return await self._send_with_realistic_timing(
                 message.channel, random.choice(error_responses),
-                reference_message=message, mention_author=False
+                reference_message=message, mention_author=False, is_ai_response=True
             )
 
         try:
-            # Get recent message history with better filtering
             history = []
             async for msg in message.channel.history(limit=100, before=message):
                 if (not msg.author.bot and 
                     msg.clean_content.strip() and 
                     len(msg.clean_content.strip()) > 3 and
-                    not msg.clean_content.startswith('!')):  # Skip commands
+                    not msg.clean_content.startswith('!')):
                     history.append(f"{msg.author.display_name}: {msg.clean_content}")
                     
-                if len(history) >= 30:  # Reasonable limit
+                if len(history) >= 30:
                     break
                     
             if len(history) < 5:
-                no_history_responses = [
-                    "There's barely anything here to summarize. You want me to work with nothing?",
-                    "What conversation? I don't see enough content worth summarizing.",
-                    "You need more than a few messages for me to summarize something meaningful."
-                ]
+                no_history_responses = [ "There's barely anything here to summarize. You want me to work with nothing?" ]
                 return await self._send_with_realistic_timing(
                     message.channel, random.choice(no_history_responses),
-                    reference_message=message, mention_author=False
+                    reference_message=message, mention_author=False, is_ai_response=True
                 )
 
-            history.reverse()  # Chronological order
+            history.reverse()
             
-            # Add a timeout for the summarization
             try:
                 summary = await asyncio.wait_for(
                     self.gemini_service.summarize_conversation(history), 
                     timeout=30.0
                 )
             except asyncio.TimeoutError:
-                return await self._send_with_realistic_timing(
-                    message.channel, "That conversation was too complicated for my brain to process. Sorry.",
-                    reference_message=message, mention_author=False
-                )
+                summary = "That conversation was too complicated for my brain to process. Sorry."
             
             if summary:
                 await self._send_with_realistic_timing(
                     message.channel, summary, 
-                    reference_message=message, mention_author=False
-                )
-            else:
-                await self._send_with_realistic_timing(
-                    message.channel, "I couldn't make sense of that conversation. It was probably just chaos anyway.",
-                    reference_message=message, mention_author=False
+                    reference_message=message, mention_author=False, is_ai_response=True
                 )
             
         except Exception as e:
-            self.logger.error(f"Summarization failed: {e}")
-            error_responses = [
-                "Something went wrong while I was trying to make sense of that mess.",
-                "I couldn't summarize that for some reason. My brain just gave up.",
-                "Yeah, that didn't work. The conversation was probably too weird for me to understand.",
-                "My processing just... stopped. Can't help you with that one."
-            ]
+            self.logger.error(f"Summarization failed: {e}", exc_info=True)
+            error_responses = [ "Something went wrong while I was trying to make sense of that mess." ]
             await self._send_with_realistic_timing(
                 message.channel, random.choice(error_responses),
-                reference_message=message, mention_author=False
+                reference_message=message, mention_author=False, is_ai_response=True
             )
 
     async def _handle_ai_conversation(self, message: discord.Message, is_mention: bool):
         """Handle AI conversation with improved error handling and rate limiting."""
-        chat_cog = self.get_cog("AIChat")
-        if not chat_cog or not chat_cog.gemini_service.is_ready():
+        feature_manager = self.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(message.guild.id, "ai_chat"):
             return
+
+        if not self.gemini_service or not self.gemini_service.is_ready():
+            return await self._send_with_realistic_timing(
+                message.channel, "My AI core isn't working right now. Try again later.",
+                reference_message=message, mention_author=False, is_ai_response=True
+            )
 
         user_id = message.author.id
         
-        # Basic rate limiting to prevent spam
         last_message_time = self.last_message_times.get(user_id)
-        if last_message_time:
-            time_diff = (discord.utils.utcnow() - last_message_time).total_seconds()
-            if time_diff < 2.0:  # 2-second cooldown
-                return
-        
-        history = chat_cog.conversation_history[user_id]
-        
-        # Process the user's message
-        if is_mention:
-            user_message_content = message.clean_content.replace(f"@{self.user.name}", "").strip()
-            if not user_message_content:  # Empty mention
-                user_message_content = "Hi"
-            # Don't clear history for mentions anymore - maintain context
-        else:
-            user_message_content = message.clean_content
-
-        # Validate message content
-        if not user_message_content or len(user_message_content.strip()) < 1:
+        if last_message_time and (discord.utils.utcnow() - last_message_time).total_seconds() < 2.0:
+            self.logger.debug(f"Rate limited user {user_id} for AI chat.")
             return
-
-        # Add user message to history
-        history.append({"role": "user", "parts": [user_message_content]})
         
-        # Trim history to prevent context bloat
+        self.last_message_times[user_id] = discord.utils.utcnow()
+
+        chat_cog = self.get_cog("AIChat")
+        history = chat_cog.conversation_history[user_id] if chat_cog else self.bot._conversation_histories.setdefault(user_id, [])
+
+        user_message_content = message.clean_content.replace(f"@{self.user.name}", "").strip() if is_mention else message.clean_content
+        if not user_message_content:
+            user_message_content = "Hi"
+
+        history.append({"role": "user", "parts": [user_message_content]})
         if len(history) > 30:
-            chat_cog.conversation_history[user_id] = history[-30:]
-            history = chat_cog.conversation_history[user_id]
+            history = history[-30:]
+            if chat_cog: chat_cog.conversation_history[user_id] = history
+            else: self.bot._conversation_histories[user_id] = history
 
         try:
-            # Generate response with timeout
-            response_task = chat_cog.gemini_service.generate_chat_response(
+            response_task = self.gemini_service.generate_chat_response(
                 user_message=user_message_content,
                 conversation_history=history,
                 guild_id=message.guild.id,
@@ -383,28 +381,24 @@ class TikaBot(commands.Bot):
                 self.logger.warning(f"AI response timeout for user {user_id}")
                 response_text = "Sorry, my brain just completely froze. Give me a second to reboot?"
             
-            if not response_text or len(response_text.strip()) == 0:
+            if not response_text or not response_text.strip():
+                self.logger.warning(f"AI returned an empty response for user {user_id}.")
                 response_text = "I... completely lost my train of thought. What were we talking about?"
             
-            # Add response to history
             history.append({"role": "model", "parts": [response_text]})
+            if chat_cog: chat_cog.conversation_history[user_id] = history
+            else: self.bot._conversation_histories[user_id] = history
             
-            # Send with realistic timing
             await self._send_with_realistic_timing(
                 message.channel, response_text,
-                reference_message=message, mention_author=False
+                reference_message=message, mention_author=False, is_ai_response=True
             )
             
         except Exception as e:
-            self.logger.error(f"AI conversation failed: {e}")
-            error_responses = [
-                "Sorry, what were we talking about? My brain just went blank.",
-                "I completely lost my train of thought. What was the question?",
-                "My thoughts are all scrambled right now. Can you repeat that?",
-                "Something's definitely not working right up here. Try again maybe?"
-            ]
+            self.logger.error(f"AI conversation failed unexpectedly: {e}", exc_info=True)
+            error_responses = [ "My thoughts are all scrambled right now. Can you repeat that?" ]
             
             await self._send_with_realistic_timing(
                 message.channel, random.choice(error_responses),
-                reference_message=message, mention_author=False
+                reference_message=message, mention_author=False, is_ai_response=True
             )

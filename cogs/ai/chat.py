@@ -5,6 +5,7 @@ from discord import app_commands
 import logging
 from collections import defaultdict
 from typing import List, Dict
+import asyncio
 
 class AIChat(commands.Cog):
     def __init__(self, bot):
@@ -47,15 +48,23 @@ class AIChat(commands.Cog):
             )
 
             self.conversation_history[user_id].append({"role": "model", "parts": [response_text]})
-            
-            await interaction.followup.send(response_text)
+            sent_message = await interaction.followup.send(response_text)
+
+            await asyncio.sleep(0.1)  # Ensure message is sent before tracking
+
+            if sent_message and hasattr(sent_message, 'id'):
+                self.bot.ai_message_ids.add(sent_message.id)
+                self.logger.info(f"Added AI message ID {sent_message.id} to tracking set. Total: {len(self.bot.ai_message_ids)}")
+            else:
+                self.logger.warning("Failed to get message object from followup.send()")
             
         except Exception as e:
-            self.logger.error(f"Chat command failed: {e}")
+            self.logger.error(f"Chat command failed: {e}", exc_info=True)
             await interaction.followup.send("Sorry, something went wrong with my response.")
 
 async def setup(bot):
     if hasattr(bot, 'gemini_service') and bot.gemini_service and bot.gemini_service.is_ready():
         await bot.add_cog(AIChat(bot))
+        logging.getLogger(__name__).info("AIChat cog loaded successfully.")
     else:
-        logging.getLogger(__name__).warning("Skipping load of AIChat cog because Gemini Service is not configured.")
+        logging.getLogger(__name__).warning("Skipping load of AIChat cog because Gemini Service is not configured or ready.")

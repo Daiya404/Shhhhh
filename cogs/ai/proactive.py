@@ -358,7 +358,7 @@ class ProactiveAI(commands.Cog):
                 await interaction.followup.send("❌ Couldn't generate a test comment. The conversation might be too boring.")
                 
         except Exception as e:
-            self.logger.error(f"Test proactive comment failed: {e}")
+            self.logger.error(f"Test proactive comment failed: {e}", exc_info=True)
             await interaction.followup.send("❌ Something went wrong during the test. Typical.")
 
 async def setup(bot):
@@ -367,5 +367,5 @@ async def setup(bot):
         logging.getLogger(__name__).info("ProactiveAI cog loaded successfully")
     else:
         logging.getLogger(__name__).warning(
-            "Skipping ProactiveAI cog - Gemini Service not available"
+            "Skipping ProactiveAI cog - Gemini Service not available or not ready."
         )

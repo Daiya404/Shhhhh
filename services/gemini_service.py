@@ -15,8 +15,12 @@ class GeminiService:
         self.logger = logging.getLogger(__name__)
         self.web_search_service = web_search_service
         self.relationship_manager = relationship_manager
+        self.api_key = api_key # Store for readiness check
         
         try:
+            if not self.api_key:
+                raise ValueError("GEMINI_API_KEY is missing or empty.")
+
             genai.configure(api_key=api_key)
             # Use more reliable model configuration
             generation_config = genai.types.GenerationConfig(
@@ -33,11 +37,12 @@ class GeminiService:
             self.logger.info("Gemini Service configured successfully.")
         except Exception as e:
             self.model = None
-            self.logger.error(f"Failed to configure Gemini Service: {e}", exc_info=True)
+            self.logger.critical(f"Failed to configure Gemini Service: {e}", exc_info=True)
+            self.logger.critical("All AI functionalities will be disabled.")
 
     def is_ready(self) -> bool:
         """Check if the Gemini model was loaded successfully."""
-        return self.model is not None
+        return self.model is not None and self.api_key
 
     def _is_search_query(self, message: str) -> bool:
         """Enhanced heuristic to decide if a message needs a search."""
