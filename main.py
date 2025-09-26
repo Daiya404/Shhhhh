@@ -1,40 +1,62 @@
 # main.py
-import subprocess
+import asyncio
 import sys
 import os
+import logging
+from pathlib import Path
 
-def check_and_install_requirements():
-    """Checks if all required packages in requirements.txt are installed and installs them if not."""
-    print("Checking required packages...")
+def setup_logging():
+    """Configure logging for the application."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler('bot.log'),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+def check_requirements():
+    """Check if all required files and directories exist."""
+    required_dirs = ['cogs', 'services', 'core', 'data', 'secrets']
+    required_files = ['requirements.txt']
+    
+    for directory in required_dirs:
+        Path(directory).mkdir(exist_ok=True)
+    
+    for file in required_files:
+        if not Path(file).exists():
+            print(f"Warning: {file} not found")
+
+async def main():
+    """Main function to initialize and run the bot."""
+    setup_logging()
+    check_requirements()
+    
     try:
-        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt'])
-        print("All packages are up to date.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error during package installation: {e}")
-        sys.exit(1)
-
-def main():
-    """Main function to load secrets and run the bot."""
-    # Check dependencies first
-    check_and_install_requirements()
-
-    # Now that we know dependencies are installed, we can import our modules
-    from core.bot import TikaBot
-    from core.secrets_loader import load_secrets
-
-    # Load secrets from the 'secrets' folder
-    secrets = load_secrets()
-    token = secrets.get("token")
-
-    if not token:
-        print("Error: 'token.txt' not found or is empty in the 'secrets' directory.")
-        sys.exit(1)
+        from core.bot import TikaBot
+        from core.secrets_loader import load_secrets
         
-    # Initialize and run the bot
-    # You can also pass all secrets to the bot if other cogs need them
-    bot = TikaBot()
-    bot.secrets = secrets  # Attach secrets to the bot instance for easy access
-    bot.run(token)
+        # Load secrets
+        secrets = load_secrets()
+        token = secrets.get("token")
+        
+        if not token:
+            logging.error("Bot token not found. Please add token.txt to the secrets directory.")
+            sys.exit(1)
+        
+        # Initialize and run bot
+        async with TikaBot(secrets=secrets) as bot:
+            await bot.start(token)
+            
+    except KeyboardInterrupt:
+        logging.info("Bot shutdown requested by user")
+    except Exception as e:
+        logging.error(f"Fatal error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nBot stopped by user")
