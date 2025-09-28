@@ -4,7 +4,6 @@ from discord.ext import commands
 from discord import app_commands
 from typing import Optional
 import logging
-import random
 
 logger = logging.getLogger(__name__)
 

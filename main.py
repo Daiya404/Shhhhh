@@ -1,7 +1,6 @@
 # main.py
 import asyncio
 import sys
-import os
 import logging
 from pathlib import Path
 
