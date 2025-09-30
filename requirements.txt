@@ -1,8 +1,0 @@
-# Core Discord library
-discord.py
-
-# For the GitHub Backup Service
-PyGithub
-
-# For asynchronous file operations in the Data Manager
-aiofiles
