@@ -3,11 +3,15 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import logging
+import re
+import asyncio
+from typing import Dict, Optional
 
-from utils.websites import all_websites
+from utils.websites import all_websites, Website
 from config.personalities import PERSONALITY_RESPONSES
 
 class LinkFixerView(discord.ui.View):
+    # This view is already efficient, no changes needed.
     def __init__(self, original_message_id: int, original_channel_id: int, original_author_id: int, source_url: str):
         super().__init__(timeout=None)
         self.original_message_id = original_message_id
@@ -16,8 +20,7 @@ class LinkFixerView(discord.ui.View):
         self.add_item(discord.ui.Button(label="Source", style=discord.ButtonStyle.link, url=source_url))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == self.original_author_id:
-            return True
+        if interaction.user.id == self.original_author_id: return True
         await interaction.response.send_message("Hmph. This isn't your message to manage.", ephemeral=True)
         return False
 
@@ -29,8 +32,7 @@ class LinkFixerView(discord.ui.View):
             if channel:
                 original_message = await channel.fetch_message(self.original_message_id)
                 await original_message.edit(suppress=False)
-        except (discord.NotFound, discord.Forbidden):
-            pass
+        except (discord.NotFound, discord.Forbidden): pass
         await interaction.response.send_message("Fine, I've reverted it.", ephemeral=True, delete_after=5)
 
 class LinkFixer(commands.Cog):
@@ -39,86 +41,151 @@ class LinkFixer(commands.Cog):
         self.logger = logging.getLogger(__name__)
         self.personality = PERSONALITY_RESPONSES["link_fixer"]
         self.data_manager = self.bot.data_manager
-        self.settings_cache = {}
 
-    @commands.Cog.listener()
-    async def on_ready(self):
-        self.logger.info("Loading link fixer settings cache...")
-        self.settings_cache = await self.data_manager.get_data("link_fixer_settings")
-        self.logger.info("Link Fixer settings cache is ready.")
+        # --- OPTIMIZATIONS ---
+        self.settings_cache: Dict = {}
+        self.website_map: Dict[str, Website] = {}
+        self.combined_pattern: Optional[re.Pattern] = None
+        
+        self._is_dirty = asyncio.Event()
+        self._save_lock = asyncio.Lock()
+        self.save_task: Optional[asyncio.Task] = None
 
-    async def check_and_fix_link(self, message: discord.Message) -> bool:
-        if not message.guild or message.author.bot:
+    async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
+        """A local check to see if the link_fixer feature is enabled."""
+        feature_manager = self.bot.get_cog("FeatureManager")
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "link_fixer" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
+        return True
 
-        user_settings = self.settings_cache.get(str(message.guild.id), {}).get("users", {}).get(str(message.author.id), {})
-        response_parts = []
-        original_url_for_view = None
-
+    # --- COG LIFECYCLE (SETUP & SHUTDOWN) ---
+    async def cog_load(self):
+        """Called when the cog is loaded. Builds the combined regex and starts background tasks."""
+        self.logger.info("Loading link fixer settings and compiling pattern...")
+        self.settings_cache = await self.data_manager.get_data("link_fixer_settings") or {}
+        
+        patterns = []
         for name, website_class in all_websites.items():
-            if user_settings.get(name, True):
-                for match in website_class.pattern.finditer(message.content):
-                    link_data = await website_class.get_links(match, session=self.bot.http_session)
-                    if link_data:
-                        part = ""
-                        # --- FORMATTING WITH NON-EMBEDDING LINKS ---
+            patterns.append(f"(?P<{name}>{website_class.pattern.pattern})")
+            self.website_map[name] = website_class
+        
+        if patterns:
+            self.combined_pattern = re.compile("|".join(patterns))
+            self.logger.info(f"Link Fixer ready with {len(all_websites)} patterns.")
+        
+        self.save_task = self.bot.loop.create_task(self._periodic_save())
 
-                        # Case 1: API-based fix (like Instagram/EmbedEZ)
-                        if link_data.get("fixer_name"):
-                            # The original URL is now wrapped in <> to prevent a double embed
-                            part = f"[{link_data['display_name']}](<{link_data['original_url']}>) • [{link_data['fixer_name']}]({link_data['fixed_url']})"
-                        
-                        # Case 2: Link with author info (like Twitter)
-                        elif link_data.get("author_name"):
-                            # The profile URL is now wrapped in <> to prevent a double embed
-                            part = f"[{link_data['display_name']}]({link_data['fixed_url']}) • [{link_data['author_name']}](<{link_data['profile_url']}>)"
-                        
-                        # Case 3: Simple link with no author (like Pixiv)
-                        else:
-                            # This only has one link, so it should embed normally. No change needed.
-                            part = f"[{link_data['display_name']}]({link_data['fixed_url']})"
-                            
-                        response_parts.append(part)
-                        if not original_url_for_view:
-                            original_url_for_view = link_data['original_url']
+    async def cog_unload(self):
+        """Called on shutdown. Cancels tasks and performs a final save."""
+        if self.save_task: self.save_task.cancel()
+        if self._is_dirty.is_set():
+            self.logger.info("Performing final save for link fixer settings...")
+            await self.data_manager.save_data("link_fixer_settings", self.settings_cache)
 
-        if not response_parts:
+    async def _periodic_save(self):
+        """Background task to save settings to disk only when they have changed."""
+        while not self.bot.is_closed():
+            try:
+                await self._is_dirty.wait()
+                await asyncio.sleep(60)
+                async with self._save_lock:
+                    await self.data_manager.save_data("link_fixer_settings", self.settings_cache)
+                    self._is_dirty.clear()
+                    self.logger.info("Periodically saved link fixer settings.")
+            except asyncio.CancelledError: break
+            except Exception as e:
+                self.logger.error(f"Error in link fixer periodic save task: {e}", exc_info=True)
+                await asyncio.sleep(120)
+
+    # --- FIX: Removed @commands.Cog.listener("on_message") decorator ---
+    # This method is now only called by the bot's central feature manager.
+    async def check_and_fix_link(self, message: discord.Message) -> bool:
+        """Optimized message check that performs a single regex scan."""
+        if not message.guild or message.author.bot or not self.combined_pattern:
             return False
+
+        matches = list(self.combined_pattern.finditer(message.content))
+        if not matches:
+            return False
+
+        # If we found links, launch background tasks and report back that we handled it.
+        for match in matches:
+            asyncio.create_task(self.process_link_fix(message, match))
+        
+        return True # Tell the feature manager this message has been handled.
+
+    async def process_link_fix(self, message: discord.Message, match: re.Match):
+        """Handles the actual fixing in the background to not block the bot."""
+        website_name = match.lastgroup
+        if not website_name: return
+
+        website_class = self.website_map.get(website_name)
+        if not website_class: return
+        
+        user_settings = self.settings_cache.get(str(message.guild.id), {}).get("users", {}).get(str(message.author.id), {})
+        if not user_settings.get(website_name, True):
+            return
 
         try:
-            response_content = "\n".join(response_parts)
+            await message.add_reaction("⏳")
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+        try:
+            link_data = await website_class.get_links(match, session=self.bot.http_session)
+            if not link_data: return
+
+            response_content = self._format_response(link_data)
             view = LinkFixerView(
                 original_message_id=message.id,
                 original_channel_id=message.channel.id,
                 original_author_id=message.author.id,
-                source_url=original_url_for_view
+                source_url=link_data['original_url']
             )
+
             await message.reply(response_content, view=view, allowed_mentions=discord.AllowedMentions.none())
             if message.channel.permissions_for(message.guild.me).manage_messages:
                 await message.edit(suppress=True)
+                
         except Exception as e:
-            self.logger.error(f"Failed to fix link in {message.channel.name}: {e}")
-        return False
+            self.logger.error(f"Failed to fix link for {website_name}: {e}")
+        finally:
+            try:
+                await message.remove_reaction("⏳", self.bot.user)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    def _format_response(self, link_data: Dict[str, str]) -> str:
+        """Formats the response string based on the data provided by the website class."""
+        if link_data.get("fixer_name"):
+            return f"[{link_data['display_name']}](<{link_data['original_url']}>) • [{link_data['fixer_name']}]({link_data['fixed_url']})"
+        elif link_data.get("author_name"):
+            return f"[{link_data['display_name']}]({link_data['fixed_url']}) • [{link_data['author_name']}](<{link_data['profile_url']}>)"
+        else:
+            return f"[{link_data['display_name']}]({link_data['fixed_url']})"
 
     @app_commands.command(name="linkfixer-settings", description="Enable or disable link fixing for yourself.")
     @app_commands.describe(website="The website you want to configure for yourself.", state="Whether to turn fixing 'On' or 'Off' for your links.")
-    @app_commands.choices(
-        website=[app_commands.Choice(name=name.title(), value=name) for name in sorted(all_websites.keys())],
-        state=[app_commands.Choice(name="On", value="on"), app_commands.Choice(name="Off", value="off")]
-    )
+    @app_commands.choices(website=[app_commands.Choice(name=name.title(), value=name) for name in sorted(all_websites.keys())], state=[app_commands.Choice(name="On", value="on"), app_commands.Choice(name="Off", value="off")])
     async def manage_linkfixer_settings(self, interaction: discord.Interaction, website: str, state: str):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         guild_id, user_id = str(interaction.guild.id), str(interaction.user.id)
-        guild_settings = self.settings_cache.setdefault(guild_id, {"users": {}})
-        user_settings = guild_settings.setdefault("users", {}).setdefault(user_id, {})
+        
+        user_settings = self.settings_cache.setdefault(guild_id, {}).setdefault("users", {}).setdefault(user_id, {})
         new_state_bool = (state == "on")
         user_settings[website] = new_state_bool
-        await self.data_manager.save_data("link_fixer_settings", self.settings_cache)
-        if new_state_bool:
-            response_msg = self.personality['personal_opt_in']
-        else:
-            response_msg = self.personality['personal_opt_out']
-        await interaction.followup.send(response_msg)
+        
+        self._is_dirty.set()
+        
+        response_msg = self.personality['personal_opt_in'] if new_state_bool else self.personality['personal_opt_out']
+        await interaction.followup.send(response_msg.replace("link fixing", f"**{website.title()}** link fixing"))
 
 async def setup(bot):
     await bot.add_cog(LinkFixer(bot))

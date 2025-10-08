@@ -1,7 +1,10 @@
 {
-  "1414334870720741520": {
-    "channel_id": 1414334872759046246,
-    "frequency_percent": 100,
-    "enabled": true
+  "932255513893290024": {
+    "channel_id": 932302602518007818,
+    "frequency_percent": 20
+  },
+  "1416678398457155648": {
+    "channel_id": 1416678399547674653,
+    "frequency_percent": 20
   }
 }

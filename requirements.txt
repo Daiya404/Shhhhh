@@ -1,25 +1,20 @@
-# Core Discord library
+# Discord Bot Core
 discord.py
 
-# Asynchronous file I/O for the DataManager
-aiofiles
-
-# Required for voice functionality (good practice to include)
-PyNaCl
-
-# For all web requests (API calls, web scraping)
+# Asynchronous HTTP Requests (for APIs and web scraping)
 aiohttp
 
-# Google Gemini AI API
-google-generativeai
+# Asynchronous File I/O (for data_manager and word_game)
+aiofiles
 
-# DuckDuckGo Web Search API (no key required)
+# Web Scraping (for knowledge_service)
+beautifulsoup4
+
+# Web Search (for web_search_service)
 ddgs
 
-# System Resource Monitoring (for /performance)
+# System Resource Monitoring (for resource_monitor)
 psutil
 
-# Google Drive API for Backups
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
+# Data Manipulation (imported in core/bot.py)
+polars-lts-cpu

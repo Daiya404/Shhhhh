@@ -1,10 +1,9 @@
 {
-  "1414334870720741520": {
-    "link_fixer": true,
-    "fun_commands": true,
-    "word_game": true
-  },
   "932255513893290024": {
+    "ai_chat": true,
+    "link_fixer": true
+  },
+  "1416678398457155648": {
     "link_fixer": false
   }
 }

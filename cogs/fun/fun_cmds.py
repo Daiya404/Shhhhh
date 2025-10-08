@@ -7,8 +7,7 @@ import random
 import re
 import asyncio
 import aiohttp
-from typing import Dict, List, Optional, Union
-from urllib.parse import urlparse
+from typing import Dict, List, Optional
 
 from config.personalities import PERSONALITY_RESPONSES
 from cogs.admin.bot_admin import is_bot_admin
@@ -53,10 +52,9 @@ class GifSourceSelect(discord.ui.Select):
         await interaction.response.defer()
         selected_value = self.values[0]
         
-        # Get user preferences
-        guild_id_str = str(interaction.guild_id)
+        # FIXED: Use per-user preferences globally, not per-guild
         user_id_str = str(interaction.user.id)
-        user_prefs = self.fun_cog.user_prefs_cache.setdefault(guild_id_str, {}).setdefault(user_id_str, {})
+        user_prefs = self.fun_cog.user_prefs_cache.setdefault(user_id_str, {})
         
         if selected_value == "default":
             user_prefs.pop(self.command, None)
@@ -107,8 +105,8 @@ class FunCommands(commands.Cog):
         
         # Caches
         self.embed_data_cache: Dict[str, Dict[str, List[str]]] = {}
-        self.user_prefs_cache: Dict[str, Dict[str, Dict[str, str]]] = {}
-        self.command_stats_cache: Dict[str, Dict[str, int]] = {}
+        # FIXED: User preferences are now global per user, not per-guild per user
+        self.user_prefs_cache: Dict[str, Dict[str, str]] = {}
         
         # Enhanced default embeds with multiple options
         self.default_embeds = {
@@ -140,30 +138,68 @@ class FunCommands(commands.Cog):
             r'(?::\d+)?'
             r'(?:/?|[/?]\S+)$', re.IGNORECASE
         )
-
+    
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
         """A local check to see if the fun_commands feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "fun_commands"):
-            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "fun_commands" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Load all fun data into memory when the cog is ready."""
+        """Load fun data into memory when the cog is ready."""
         self.logger.info("Loading fun command data into memory...")
         try:
             self.embed_data_cache = await self.data_manager.get_data("fun_embeds")
             self.user_prefs_cache = await self.data_manager.get_data("user_gif_preferences")
-            self.command_stats_cache = await self.data_manager.get_data("fun_command_stats")
             self.logger.info("Fun command data cache loaded successfully.")
+            
+            # MIGRATION: Convert old format to new format if needed
+            await self._migrate_user_preferences()
+            
         except Exception as e:
             self.logger.error(f"Failed to load fun command data: {e}")
             # Initialize empty caches on failure
             self.embed_data_cache = {}
             self.user_prefs_cache = {}
-            self.command_stats_cache = {}
+
+    async def _migrate_user_preferences(self):
+        """Migrate old per-guild user preferences to new global user preferences."""
+        migrated = False
+        
+        # Check if we have the old format: {guild_id: {user_id: {command: guild_id}}}
+        for key, value in list(self.user_prefs_cache.items()):
+            if isinstance(value, dict):
+                # Check if this looks like the old format (nested dict with user IDs)
+                for sub_key, sub_value in value.items():
+                    if isinstance(sub_value, dict) and any(cmd in ['coinflip', 'roll', 'rps'] for cmd in sub_value.keys()):
+                        # This is old format: migrate it
+                        user_id = sub_key
+                        commands_prefs = sub_value
+                        
+                        # Merge into new global format
+                        if user_id not in self.user_prefs_cache or not isinstance(self.user_prefs_cache[user_id], dict):
+                            self.user_prefs_cache[user_id] = {}
+                        
+                        # Copy preferences, newer ones override older ones
+                        for cmd, guild_pref in commands_prefs.items():
+                            self.user_prefs_cache[user_id][cmd] = guild_pref
+                        
+                        migrated = True
+                        
+                # Remove old format entry
+                if migrated:
+                    del self.user_prefs_cache[key]
+        
+        if migrated:
+            self.logger.info("Migrated user GIF preferences to new format.")
+            await self.data_manager.save_data("user_gif_preferences", self.user_prefs_cache)
 
     async def _validate_url(self, url: str) -> bool:
         """Validate URL format and check if it's accessible."""
@@ -178,46 +214,52 @@ class FunCommands(commands.Cog):
             return False
 
     def _get_random_embed_url(self, interaction: discord.Interaction, command: str) -> str:
-        """Get a random embed URL based on user preferences, with fallback logic."""
+        """
+        Gets a random embed URL, correctly handling cross-server permissions.
+        """
         try:
-            guild_id_str = str(interaction.guild_id)
-            user_id_str = str(interaction.user.id)
+            user_id = interaction.user.id
             
-            # Check user preferences first
-            user_prefs = self.user_prefs_cache.get(guild_id_str, {}).get(user_id_str, {})
-            preferred_guild_id = user_prefs.get(command)
+            # FIXED: Check global user preferences (not per-guild)
+            user_prefs = self.user_prefs_cache.get(str(user_id), {})
+            preferred_guild_id_str = user_prefs.get(command)
             
-            if preferred_guild_id:
-                urls = self.embed_data_cache.get(preferred_guild_id, {}).get(command, [])
-                if urls:
-                    return random.choice(urls)
-            
-            # Fall back to current guild's GIFs
-            guild_urls = self.embed_data_cache.get(guild_id_str, {}).get(command, [])
-            if guild_urls:
-                return random.choice(guild_urls)
+            if preferred_guild_id_str:
+                # Get the guild object from the bot's global cache of servers.
+                preferred_guild = self.bot.get_guild(int(preferred_guild_id_str))
+                
+                # CRITICAL CHECK: Does the bot still see this server, AND is the user a member of it?
+                if preferred_guild and preferred_guild.get_member(user_id):
+                    if urls := self.embed_data_cache.get(preferred_guild_id_str, {}).get(command):
+                        self.logger.debug(f"User {user_id} using preferred GIF source: {preferred_guild.name}")
+                        return random.choice(urls)
+                    else:
+                        self.logger.warning(f"Preferred guild {preferred_guild_id_str} has no GIFs for {command}")
+                else:
+                    self.logger.warning(f"User {user_id} cannot access preferred GIF source {preferred_guild_id_str}. Falling back.")
+                    # Clear invalid preference
+                    user_prefs.pop(command, None)
+                    # Save the cleared preference (don't await in sync method)
+                    asyncio.create_task(self.data_manager.save_data("user_gif_preferences", self.user_prefs_cache))
+
+            # Fall back to current guild's GIFs if available
+            current_guild_id_str = str(interaction.guild_id)
+            if urls := self.embed_data_cache.get(current_guild_id_str, {}).get(command):
+                self.logger.debug(f"Using current guild GIFs for {command}")
+                return random.choice(urls)
             
             # Final fallback to defaults
-            default_urls = self.default_embeds.get(command, [""])
-            return random.choice(default_urls)
+            self.logger.debug(f"Using default GIFs for {command}")
+            return random.choice(self.default_embeds.get(command, [""]))
             
         except Exception as e:
             self.logger.error(f"Error getting embed URL for {command}: {e}")
             return random.choice(self.default_embeds.get(command, [""]))
 
-    async def _increment_command_stat(self, guild_id: int, command: str):
-        """Track command usage statistics."""
-        try:
-            guild_stats = self.command_stats_cache.setdefault(str(guild_id), {})
-            guild_stats[command] = guild_stats.get(command, 0) + 1
-            await self.data_manager.save_data("fun_command_stats", self.command_stats_cache)
-        except Exception as e:
-            self.logger.error(f"Failed to increment command stat: {e}")
-
     @app_commands.command(name="coinflip", description="Flip a coin and see if you get heads or tails!")
     async def coinflip(self, interaction: discord.Interaction):
-        if not await self._is_feature_enabled(interaction): return
-        await self._increment_command_stat(interaction.guild_id, "coinflip")
+        if not await self._is_feature_enabled(interaction):
+            return
         
         flipping_url = self._get_random_embed_url(interaction, "coinflip")
         embed = discord.Embed(
@@ -253,8 +295,8 @@ class FunCommands(commands.Cog):
     @app_commands.command(name="roll", description="Roll dice in XdY format (e.g., 1d6, 2d20, 3d6+5).")
     @app_commands.describe(dice="The dice to roll (e.g., 1d6, 2d20, 1d20+5)")
     async def roll(self, interaction: discord.Interaction, dice: str):
-        if not await self._is_feature_enabled(interaction): return
-        await self._increment_command_stat(interaction.guild_id, "roll")
+        if not await self._is_feature_enabled(interaction): 
+            return
         
         # Enhanced dice parsing with modifiers
         match = self.dice_pattern.match(dice.lower().strip())
@@ -284,32 +326,31 @@ class FunCommands(commands.Cog):
         
         embed_url = self._get_random_embed_url(interaction, "roll")
         
-        # Create result description
-        description_parts = []
-        if num_dice <= 20:  # Only show individual rolls for reasonable amounts
-            description_parts.append(f"**Rolls:** {', '.join(map(str, rolls))}")
-        
+        # Simple, clean embed like the image
         if modifier != 0:
+            # Show modifier details when used
             modifier_str = f"+{modifier}" if modifier > 0 else str(modifier)
-            description_parts.append(f"**Base Total:** {base_total}")
-            description_parts.append(f"**Modifier:** {modifier_str}")
-            description_parts.append(f"**Final Total:** {final_total}")
+            title = f"🎲 Rolled {dice.upper()}: Result is {final_total}"
+            if num_dice > 1:
+                description = f"Individual rolls: {', '.join(map(str, rolls))}\nBase Total: {base_total}\nModifier: {modifier_str}"
+            else:
+                description = f"Roll: {rolls[0]}\nModifier: {modifier_str}"
+        else:
+            # No modifier, keep it simple
+            title = f"🎲 Rolled {dice.upper()}: Result is {final_total}"
+            if num_dice > 1:
+                description = f"Individual rolls: {', '.join(map(str, rolls))}"
+            else:
+                description = ""
         
         embed = discord.Embed(
-            title=f"🎲 Rolled {dice.upper()}: **{final_total}**",
-            description="\n".join(description_parts) if description_parts else "",
+            title=title,
+            description=description,
             color=discord.Color.blue()
         )
         
         if embed_url:
             embed.set_image(url=embed_url)
-        
-        # Add some flavor based on results
-        if num_dice == 1:
-            if rolls[0] == 1:
-                embed.add_field(name="💀", value="Critical Failure!", inline=False)
-            elif rolls[0] == num_sides:
-                embed.add_field(name="✨", value="Critical Success!", inline=False)
         
         await interaction.response.send_message(embed=embed)
 
@@ -321,9 +362,8 @@ class FunCommands(commands.Cog):
         app_commands.Choice(name="✂️ Scissors", value="scissors")
     ])
     async def rps(self, interaction: discord.Interaction, choice: app_commands.Choice[str]):
-        if not await self._is_feature_enabled(interaction): return
-        await self._increment_command_stat(interaction.guild_id, "rps")
-        
+        if not await self._is_feature_enabled(interaction):
+            return
         user_choice = choice.value
         bot_choice = random.choice(["rock", "paper", "scissors"])
         
@@ -345,7 +385,7 @@ class FunCommands(commands.Cog):
                 bot_choice=bot_choice.title()
             )
             color = discord.Color.red()
-            emoji = "😔"
+            emoji = "😏"
 
         embed = discord.Embed(
             title=f"{emoji} Rock, Paper, Scissors Result!",
@@ -392,6 +432,8 @@ class FunCommands(commands.Cog):
     )
     async def fun_admin(self, interaction: discord.Interaction, action: app_commands.Choice[str], 
                        command: app_commands.Choice[str], url: Optional[str] = None):
+        if not await self._is_feature_enabled(interaction):
+                return
         await interaction.response.defer(ephemeral=True)
         
         guild_id = str(interaction.guild_id)
@@ -468,19 +510,23 @@ class FunCommands(commands.Cog):
         app_commands.Choice(name="RPS", value="rps")
     ])
     async def fun_embeds_selection(self, interaction: discord.Interaction, command: app_commands.Choice[str]):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         command_name = command.value
         
-        # Find all guilds with GIFs for this command
+        # Find all guilds with GIFs for this command that the user can access
         available_guilds = {}
         for guild_id, commands_data in self.embed_data_cache.items():
             if command_name in commands_data and commands_data[command_name]:
                 if guild := self.bot.get_guild(int(guild_id)):
-                    available_guilds[guild_id] = guild.name
+                    # Only show guilds where the user is a member
+                    if guild.get_member(interaction.user.id):
+                        available_guilds[guild_id] = guild.name
         
         if not available_guilds:
             return await interaction.followup.send(
-                f"❌ No servers have custom GIFs configured for **{command.name}**.\n"
+                f"❌ No servers that you're in have custom GIFs configured for **{command.name}**.\n"
                 "Ask your server admins to add some with `/fun-admin`!"
             )
         
@@ -489,6 +535,38 @@ class FunCommands(commands.Cog):
             f"🎨 Choose the GIF source for your **{command.name}** commands:",
             view=view
         )
+
+    # DEBUGGING COMMAND - Remove this in production
+    @app_commands.command(name="debug-gif-prefs", description="[Debug] Show your current GIF preferences.")
+    async def debug_gif_prefs(self, interaction: discord.Interaction):
+        """Debug command to show current user preferences."""
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id_str = str(interaction.user.id)
+        user_prefs = self.user_prefs_cache.get(user_id_str, {})
+        
+        if not user_prefs:
+            await interaction.followup.send("❌ No GIF preferences set.")
+            return
+            
+        embed = discord.Embed(
+            title="🔧 Your GIF Preferences",
+            color=discord.Color.blue()
+        )
+        
+        for command, guild_id in user_prefs.items():
+            guild = self.bot.get_guild(int(guild_id))
+            guild_name = guild.name if guild else f"Unknown ({guild_id})"
+            can_access = guild and guild.get_member(interaction.user.id) is not None
+            status = "✅ Accessible" if can_access else "❌ Cannot Access"
+            
+            embed.add_field(
+                name=f"**{command.title()}**",
+                value=f"Server: {guild_name}\nStatus: {status}",
+                inline=False
+            )
+        
+        await interaction.followup.send(embed=embed)
 
 async def setup(bot):
     await bot.add_cog(FunCommands(bot))

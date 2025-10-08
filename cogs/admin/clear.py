@@ -5,194 +5,155 @@ from discord.ext import commands
 from discord import app_commands
 import asyncio
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Callable
+from datetime import timedelta
+from typing import Optional, List, Dict, Callable, Union
 
 from config.personalities import PERSONALITY_RESPONSES
 from cogs.admin.bot_admin import is_bot_admin
 
 # --- Helper Classes ---
 class SearchConfirmationView(discord.ui.View):
-    __slots__ = ('messages_to_delete', 'target', 'confirmed', 'personality')
+    __slots__ = ('messages_to_delete', 'confirmed', 'personality', 'response_text')
     
-    def __init__(self, messages_to_delete: List[discord.Message], target: str, personality: dict):
-        super().__init__(timeout=60.0)
+    def __init__(self, messages_to_delete: List[discord.Message], personality: dict, response_text: str):
+        super().__init__(timeout=120.0)
         self.messages_to_delete = messages_to_delete
-        self.target = target
         self.confirmed = False
         self.personality = personality
+        self.response_text = response_text
+
+    async def _bulk_delete_messages(self, channel: discord.TextChannel) -> int:
+        cutoff = discord.utils.utcnow() - timedelta(days=14)
+        recent = [msg for msg in self.messages_to_delete if msg.created_at > cutoff]
+        old = [msg for msg in self.messages_to_delete if msg.created_at <= cutoff]
+        
+        deleted_count = 0
+        if recent:
+            for chunk in discord.utils.as_chunks(recent, 100):
+                try:
+                    await channel.delete_messages(chunk)
+                    deleted_count += len(chunk)
+                except (discord.NotFound, discord.HTTPException):
+                    # Fallback: If bulk fails, try one-by-one for this chunk
+                    for msg in chunk:
+                        try: 
+                            await msg.delete()
+                            deleted_count += 1
+                        except (discord.NotFound, discord.HTTPException): pass
+                await asyncio.sleep(0.5) # Prevent rate-limiting
+        
+        for msg in old:
+            try:
+                await msg.delete()
+                deleted_count += 1
+                await asyncio.sleep(0.2)
+            except (discord.NotFound, discord.HTTPException): continue
+        return deleted_count
 
     @discord.ui.button(label="Delete All", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def confirm_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
+        deleted_count = await self._bulk_delete_messages(interaction.channel)
+        self.confirmed = True
+        for item in self.children: item.disabled = True
         
-        try:
-            deleted_count = await self._bulk_delete_messages(interaction.channel)
-            self.confirmed = True
-            for item in self.children:
-                item.disabled = True
-            await interaction.edit_original_response(view=self)
-            await interaction.followup.send(
-                self.personality["search_completed"].format(count=deleted_count, target=self.target),
-                ephemeral=True
-            )
-        except discord.Forbidden:
-            await interaction.followup.send(self.personality["error_forbidden"], ephemeral=True)
-        except discord.HTTPException as e:
-            await interaction.followup.send(f"{self.personality['error_general']} Error: {str(e)}", ephemeral=True)
-        finally:
-            self.stop()
+        response = self.response_text.format(count=deleted_count)
+        await interaction.edit_original_response(content=response, view=self)
+        self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, emoji="❌")
     async def cancel_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
-        for item in self.children:
-            item.disabled = True
+        for item in self.children: item.disabled = True
         await interaction.response.edit_message(content=self.personality["search_cancelled"], view=self)
         self.stop()
 
-    async def _bulk_delete_messages(self, channel: discord.TextChannel) -> int:
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=14)
-        recent_messages = [msg for msg in self.messages_to_delete if msg.created_at > cutoff_date]
-        old_messages = [msg for msg in self.messages_to_delete if msg.created_at <= cutoff_date]
-        
-        deleted_count = 0
-        
-        for i in range(0, len(recent_messages), 100):
-            chunk = recent_messages[i:i+100]
-            try:
-                if len(chunk) > 1:
-                    await channel.delete_messages(chunk)
-                elif len(chunk) == 1:
-                    await chunk[0].delete()
-                deleted_count += len(chunk)
-                if i + 100 < len(recent_messages):
-                    await asyncio.sleep(0.5)
-            except (discord.NotFound, discord.HTTPException):
-                continue
-        
-        for msg in old_messages:
-            try:
-                await msg.delete()
-                deleted_count += 1
-                await asyncio.sleep(0.1)
-            except (discord.NotFound, discord.HTTPException):
-                continue
-        
-        return deleted_count
-
-    async def on_timeout(self):
-        for item in self.children:
-            item.disabled = True
-
 class MessageMatcher:
+    # This class is already highly optimized.
     __slots__ = ('_compiled_patterns',)
-    
-    def __init__(self):
-        self._compiled_patterns = {}
-    
+    def __init__(self): self._compiled_patterns = {}
     def get_matcher(self, target: str, match_type: str) -> Callable[[str], bool]:
         cache_key = (target, match_type)
-        if cache_key not in self._compiled_patterns:
-            self._compiled_patterns[cache_key] = self._compile_matcher(target, match_type)
+        if cache_key in self._compiled_patterns: return self._compiled_patterns[cache_key]
+        self._compiled_patterns[cache_key] = self._compile_matcher(target, match_type)
         return self._compiled_patterns[cache_key]
-    
     def _compile_matcher(self, target: str, match_type: str) -> Callable[[str], bool]:
         target_lower = target.lower()
-        if match_type == "contains":
-            return lambda content: target_lower in content.lower()
-        elif match_type == "word":
-            pattern = re.compile(r'\b' + re.escape(target_lower) + r'\b', re.IGNORECASE)
-            return lambda content: bool(pattern.search(content))
-        elif match_type == "exact":
-            return lambda content: content.strip().lower() == target_lower
-        elif match_type == "regex":
-            try:
-                pattern = re.compile(target, re.IGNORECASE)
-                return lambda content: bool(pattern.search(content))
-            except re.error as e:
-                raise ValueError(f"Invalid regex: {e}")
-        return lambda content: target_lower in content.lower()
+        if match_type == "contains": return lambda c: target_lower in c.lower()
+        if match_type == "word": pattern = re.compile(r'\b' + re.escape(target_lower) + r'\b', re.IGNORECASE); return lambda c: bool(pattern.search(c))
+        if match_type == "exact": return lambda c: c.strip().lower() == target_lower
+        if match_type == "regex":
+            try: pattern = re.compile(target, re.IGNORECASE); return lambda c: bool(pattern.search(c))
+            except re.error as e: raise ValueError(f"Invalid regex: {e}")
+        return lambda c: target_lower in c.lower()
 
 # --- The Main Cog ---
-
 class Clear(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.logger = logging.getLogger(__name__)
         self.personality = PERSONALITY_RESPONSES["clear"]
-        self.eat_start_points: dict[int, int] = {}
         self._message_matcher = MessageMatcher()
+        self.range_points: Dict[str, int] = {} # key: f"{user_id}:{channel_id}"
+        
+        self.set_start_point_menu = app_commands.ContextMenu(name="Set as Deletion Start", callback=self.set_start_point)
+        self.set_end_point_menu = app_commands.ContextMenu(name="Set as Deletion End", callback=self.set_end_point)
+        self.bot.tree.add_command(self.set_start_point_menu)
+        self.bot.tree.add_command(self.set_end_point_menu)
 
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
-        """A local check to see if the clear feature is enabled."""
+        """A local check to see if the clear_commands feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "clear_commands"):
-            await interaction.response.send_message("Hmph. The Clear feature is disabled on this server.", ephemeral=True)
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "clear_commands" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
+    async def cog_unload(self):
+        self.bot.tree.remove_command(self.set_start_point_menu.name, type=self.set_start_point_menu.type)
+        self.bot.tree.remove_command(self.set_end_point_menu.name, type=self.set_end_point_menu.type)
+
     async def cog_check(self, ctx: commands.Context) -> bool:
-        """Universal check for prefix commands (!tika eat/end)."""
-        if not ctx.guild: return False
-        
-        admin_cog = self.bot.get_cog("BotAdmin")
-        if not admin_cog:
-            self.logger.warning("BotAdmin cog not found for prefix command check.")
+        """
+        This check now runs for ALL prefix commands in this cog (e.g., !tika eat).
+        It now verifies BOTH admin permissions AND the feature manager status.
+        """
+        if not ctx.guild:
             return False
-        
-        return await admin_cog.check_prefix_command(ctx)
 
-    @staticmethod
-    def _create_preview_text(matched_messages: List[discord.Message], target: str, 
-                           channel: Optional[discord.TextChannel], user: Optional[discord.Member]) -> str:
-        preview_text = f"**Found {len(matched_messages)} messages containing:** `{target}`"
-        if channel: preview_text += f" in {channel.mention}"
-        if user: preview_text += f" from {user.mention}"
-        preview_text += "\n\n**Preview (first 3 matches):**"
-        for msg in matched_messages[:3]:
-            content_preview = msg.content.replace('\n', ' ')[:100]
-            if len(msg.content) > 100: content_preview += "..."
-            preview_text += f"\n• **{msg.author.display_name}**: {content_preview}"
-        if len(matched_messages) > 3:
-            preview_text += f"\n... and {len(matched_messages) - 3} more messages"
-        preview_text += "\n\n⚠️ **This action cannot be undone!**"
-        return preview_text
+        # 1. Check for Bot Admin permissions first.
+        admin_cog = self.bot.get_cog("BotAdmin")
+        if not admin_cog or not await admin_cog.check_prefix_command(ctx):
+            return False
+            
+        # 2. Check if the 'clear_commands' feature is enabled.
+        feature_manager = self.bot.get_cog("FeatureManager")
+        if not feature_manager or not feature_manager.is_feature_enabled(ctx.guild.id, "clear_commands"):
+            # For prefix commands, we usually fail silently instead of sending a message.
+            return False
 
-    async def _search_messages(self, channel: discord.TextChannel, target: str, match_type: str,
-                              user: Optional[discord.Member], limit: int) -> List[discord.Message]:
-        matcher = self._message_matcher.get_matcher(target, match_type)
-        matched_messages, bot_id = [], self.bot.user.id
-        user_id = user.id if user else None
-        
-        async for message in channel.history(limit=limit):
-            if message.author.id == bot_id or (user_id and message.author.id != user_id):
-                continue
-            if message.type != discord.MessageType.default:
-                continue
-            if matcher(message.content):
-                matched_messages.append(message)
-        return matched_messages
+        # If both checks pass, the command is allowed.
+        return True
 
-    async def _handle_deletion_error(self, interaction: discord.Interaction, error: Exception):
-        msg = self.personality["error_general"]
-        if isinstance(error, discord.Forbidden): msg = self.personality["error_forbidden"]
-        elif isinstance(error, discord.HTTPException): msg += f" Error: {str(error)}"
-        await interaction.followup.send(msg, ephemeral=True)
-
+    # --- Slash Commands ---
     @app_commands.command(name="clear", description="Deletes a specified number of recent messages.")
     @app_commands.default_permissions(manage_messages=True)
     @is_bot_admin()
     @app_commands.describe(amount="The number of messages to delete (1-100).", user="Optional: Filter to only delete messages from this user.")
     async def slash_clear(self, interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], user: Optional[discord.Member] = None):
-        if not await self._is_feature_enabled(interaction): return
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
         try:
-            check = (lambda m: m.author == user) if user else (lambda m: True)
-            deleted_messages = await interaction.channel.purge(limit=amount, check=check, bulk=True)
-            response = self.personality["clear_user_success"].format(count=len(deleted_messages), user=user.mention) if user else self.personality["clear_success"].format(count=len(deleted_messages))
+            check = (lambda m: m.author == user) if user else None
+            deleted = await interaction.channel.purge(limit=amount, check=check, bulk=True)
+            response = self.personality["clear_user_success"].format(count=len(deleted), user=user.mention) if user else self.personality["clear_success"].format(count=len(deleted))
             await interaction.followup.send(response)
         except (discord.Forbidden, discord.HTTPException) as e:
-            await self._handle_deletion_error(interaction, e)
+            await interaction.followup.send(self.personality["error_forbidden"] if isinstance(e, discord.Forbidden) else self.personality["error_general"])
 
     @app_commands.command(name="clearsearch", description="Search and delete messages containing specific text or links.")
     @app_commands.default_permissions(manage_messages=True)
@@ -205,69 +166,112 @@ class Clear(commands.Cog):
         app_commands.Choice(name="Regex Pattern (advanced)", value="regex")
     ])
     async def clear_search(self, interaction: discord.Interaction, target: str, match_type: str = "contains", user: Optional[discord.Member] = None, limit: app_commands.Range[int, 1, 10000] = 1000):
-        if not await self._is_feature_enabled(interaction): return
-        await interaction.response.defer(ephemeral=True)
+        if not await self._is_feature_enabled(interaction):
+            return
+        await interaction.response.send_message(f"🔍 Searching for messages containing `{target}`...", ephemeral=True)
         try:
-            matched_messages = await self._search_messages(interaction.channel, target, match_type, user, limit)
-        except ValueError as e: 
-            return await interaction.followup.send(str(e))
-        except Exception: 
-            return await interaction.followup.send(self.personality["error_general"])
+            matcher = self._message_matcher.get_matcher(target, match_type)
+            matched = []
+            scanned = 0
+            async for msg in interaction.channel.history(limit=limit):
+                scanned += 1
+                if limit > 2000 and scanned % 1000 == 0: await interaction.edit_original_response(content=f"🔍 Searching... (Scanned {scanned}/{limit} messages)")
+                if user and msg.author.id != user.id: continue
+                if msg.type != discord.MessageType.default: continue
+                if matcher(msg.content): matched.append(msg)
+        except ValueError as e: return await interaction.edit_original_response(content=str(e))
+        except Exception: return await interaction.edit_original_response(content=self.personality["error_general"])
+        if not matched: return await interaction.edit_original_response(content=self.personality["search_no_matches"].format(target=target))
         
-        if not matched_messages:
-            return await interaction.followup.send(self.personality["search_no_matches"].format(target=target))
-        
-        preview_text = self._create_preview_text(matched_messages, target, None, user)
-        view = SearchConfirmationView(matched_messages, target, self.personality)
-        await interaction.followup.send(preview_text, view=view, ephemeral=True)
-        
-        timed_out = await view.wait()
-        if timed_out and not view.confirmed:
-            await interaction.edit_original_response(content=self.personality["search_timeout"], view=None)
+        preview = self._create_preview_text(matched, target, user)
+        response_text = self.personality["search_completed"].format(count="{count}", target=target)
+        view = SearchConfirmationView(matched, self.personality, response_text)
+        await interaction.edit_original_response(content=preview, view=view)
 
-    # --- Prefix Commands ---
-    @commands.command()
+    # --- Context Menu & Prefix Commands for Range Deletion ---
+    @is_bot_admin()
+    async def set_start_point(self, interaction: discord.Interaction, message: discord.Message):
+        if not await self._is_feature_enabled(interaction):
+            return
+        key = f"{interaction.user.id}:{interaction.channel_id}"
+        self.range_points[key] = message.id
+        await interaction.response.send_message(f"✅ Start point set. Now use `Set as Deletion End` on another message.", ephemeral=True)
+
+    @commands.command(aliases=['start'])
     async def eat(self, ctx: commands.Context):
         if not ctx.message.reference:
             await ctx.send(self.personality["must_reply"], delete_after=10)
         else:
-            self.eat_start_points[ctx.channel.id] = ctx.message.reference.message_id
+            key = f"{ctx.author.id}:{ctx.channel.id}"
+            self.range_points[key] = ctx.message.reference.message_id
             await ctx.send(self.personality["eat_start_set"], delete_after=10)
         await ctx.message.delete()
 
+    @is_bot_admin()
+    async def set_end_point(self, interaction: discord.Interaction, message: discord.Message):
+        if not await self._is_feature_enabled(interaction):
+            return
+        key = f"{interaction.user.id}:{interaction.channel_id}"
+        start_id = self.range_points.pop(key, None)
+        if not start_id: return await interaction.response.send_message("❌ You need to set a start point first!", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        await self._perform_range_deletion(interaction, start_id, message.id)
+
     @commands.command()
     async def end(self, ctx: commands.Context):
-        if not ctx.message.reference:
-            await ctx.message.delete()
-            return await ctx.send(self.personality["must_reply"], delete_after=10)
-        
-        start_id = self.eat_start_points.pop(ctx.channel.id, None)
-        if not start_id:
-            await ctx.message.delete()
-            return await ctx.send(self.personality["end_no_start"], delete_after=10)
-        
-        end_id = ctx.message.reference.message_id
         await ctx.message.delete()
-
-        try:
-            start_msg = await ctx.channel.fetch_message(start_id)
-            end_msg = await ctx.channel.fetch_message(end_id)
-        except discord.NotFound:
-            return await ctx.send(self.personality["error_not_found"], delete_after=10)
+        if not ctx.message.reference: return await ctx.send(self.personality["must_reply"], delete_after=10)
         
-        if start_msg.created_at > end_msg.created_at:
-            start_msg, end_msg = end_msg, start_msg
+        key = f"{ctx.author.id}:{ctx.channel.id}"
+        start_id = self.range_points.pop(key, None)
+        if not start_id: return await ctx.send(self.personality["end_no_start"], delete_after=10)
+        
+        await self._perform_range_deletion(ctx, start_id, ctx.message.reference.message_id)
 
+    # --- Core Deletion Logic ---
+    async def _perform_range_deletion(self, source: Union[discord.Interaction, commands.Context], start_id: int, end_id: int):
+        channel = source.channel
         try:
-            # Purge doesn't include the before/after messages, so we delete them manually
-            deleted = await ctx.channel.purge(before=end_msg, after=start_msg, limit=None)
+            start_msg = await channel.fetch_message(start_id)
+            end_msg = await channel.fetch_message(end_id)
+            if start_msg.created_at > end_msg.created_at: start_msg, end_msg = end_msg, start_msg
+
+            # *** THE OPTIMIZATION ***
+            # Use purge directly instead of iterating. This is massively faster.
+            deleted = await channel.purge(before=end_msg, after=start_msg, limit=None)
             await start_msg.delete()
             await end_msg.delete()
-            await ctx.send(self.personality["eat_success"].format(count=len(deleted) + 2), delete_after=10)
+            
+            count = len(deleted) + 2
+            response = self.personality["eat_success"].format(count=count)
+            
+            if isinstance(source, discord.Interaction): await source.followup.send(response, ephemeral=True)
+            else: await source.send(response, delete_after=10)
+
+        except discord.NotFound:
+            response = self.personality["error_not_found"]
+            if isinstance(source, discord.Interaction): await source.followup.send(response, ephemeral=True)
+            else: await source.send(response, delete_after=10)
         except discord.Forbidden:
-            await ctx.send(self.personality["error_forbidden"], delete_after=10)
-        except discord.HTTPException:
-            await ctx.send(self.personality["error_general"], delete_after=10)
+            response = self.personality["error_forbidden"]
+            if isinstance(source, discord.Interaction): await source.followup.send(response, ephemeral=True)
+            else: await source.send(response, delete_after=10)
+        except Exception:
+            response = self.personality["error_general"]
+            if isinstance(source, discord.Interaction): await source.followup.send(response, ephemeral=True)
+            else: await source.send(response, delete_after=10)
+
+    # --- Helper Methods ---
+    def _create_preview_text(self, matched_messages: List[discord.Message], target: str, user: Optional[discord.Member]) -> str:
+        text = f"**Found {len(matched_messages)} messages containing:** `{target}`"
+        if user: text += f" from {user.mention}"
+        text += "\n\n**Preview (first 3 matches):**"
+        for msg in matched_messages[:3]:
+            preview = discord.utils.escape_markdown(msg.content.replace('\n', ' ')[:100])
+            text += f"\n• **{msg.author.display_name}**: {preview}" + ("..." if len(msg.content) > 100 else "")
+        if len(matched_messages) > 3: text += f"\n... and {len(matched_messages) - 3} more messages"
+        text += "\n\n⚠️ **This action cannot be undone!**"
+        return text
 
 async def setup(bot):
     await bot.add_cog(Clear(bot))

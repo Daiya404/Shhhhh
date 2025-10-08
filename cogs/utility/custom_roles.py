@@ -10,195 +10,459 @@ from typing import Dict, Optional, List
 
 from config.personalities import PERSONALITY_RESPONSES
 from cogs.admin.bot_admin import is_bot_admin
-from utils.frustration_manager import get_frustration_level
 
+# --- UI Views for Admin Cleanup ---
+class RoleCleanupSelect(discord.ui.Select):
+    def __init__(self, cog, roles_to_clean: List[discord.Role]):
+        self.cog = cog
+        options = [discord.SelectOption(label=role.name, value=str(role.id), emoji="🗑️") for role in roles_to_clean[:25]]
+        super().__init__(placeholder="Select a single orphaned role to delete...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        role_id = int(self.values[0])
+        role = interaction.guild.get_role(role_id)
+        if role:
+            await self.cog._delete_and_untrack_role(role)
+            await interaction.followup.send(f"✅ Deleted orphaned role: **{role.name}**", ephemeral=True)
+            await self.view.refresh(interaction)
+
+class RoleCleanupView(discord.ui.View):
+    def __init__(self, cog, guild: discord.Guild, author_id: int):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.guild = guild
+        self.author_id = author_id
+        self.roles_to_clean: List[discord.Role] = []
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.author_id: 
+            return True
+        await interaction.response.send_message("This is not for you.", ephemeral=True)
+        return False
+
+    async def populate_items(self):
+        self.clear_items()
+        self.roles_to_clean = await self.cog._find_orphaned_roles(self.guild)
+        if self.roles_to_clean:
+            self.add_item(RoleCleanupSelect(self.cog, self.roles_to_clean))
+            self.add_item(self.delete_all_button)
+
+    @discord.ui.button(label="Delete All Shown", style=discord.ButtonStyle.danger, row=1)
+    async def delete_all_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(f"Deleting {len(self.roles_to_clean)} roles...", ephemeral=True)
+        deleted_count = 0
+        for role in self.roles_to_clean:
+            if await self.cog._delete_and_untrack_role(role):
+                deleted_count += 1
+            await asyncio.sleep(0.5)
+        await interaction.edit_original_response(content=f"✅ Cleanup complete. Deleted {deleted_count} orphaned roles.", view=None)
+        self.stop()
+
+    async def refresh(self, interaction: discord.Interaction):
+        await self.populate_items()
+        if not self.roles_to_clean:
+            await interaction.edit_original_response(content="✅ All orphaned roles have been cleaned up!", view=None)
+            self.stop()
+        else:
+            await interaction.edit_original_response(view=self)
+
+# --- Main Cog ---
 class CustomRoles(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.logger = logging.getLogger(__name__)
         self.personality = PERSONALITY_RESPONSES["custom_roles"]
         self.data_manager = self.bot.data_manager
+        
+        self.roles_cache: Dict[str, Dict[str, int]] = {}
+        self.primary_roles_cache: Dict[str, Dict[str, int]] = {}
+        self.settings_cache: Dict[str, Dict] = {}
         self._position_lock = asyncio.Lock()
-        self._guild_cache: Dict[str, Dict] = {}
-        self._cache_ttl = 300
-        self._last_cache_update: Dict[str, float] = {}
 
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
         """A local check to see if the custom_roles feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, "custom_roles"):
-            await interaction.response.send_message("Hmph. The Custom Roles feature is disabled on this server.", ephemeral=True)
+        # The feature name here MUST match the one in AVAILABLE_FEATURES
+        feature_name = "custom_roles" 
+        
+        if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
+            # This personality response is just a suggestion; you can create a generic one.
+            await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
-    # --- User-Facing Commands ---
+    async def cog_load(self):
+        self.roles_cache = await self.data_manager.get_data("custom_roles_tracking")
+        self.primary_roles_cache = await self.data_manager.get_data("user_primary_roles")
+        self.settings_cache = await self.data_manager.get_data("role_settings")
+        self.logger.info("Custom Roles data caches are ready.")
 
+    async def role_autocomplete(self, interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+        guild_roles = self.roles_cache.get(str(interaction.guild.id), {})
+        owned_role_ids = [int(rid) for rid, uid in guild_roles.items() if uid == interaction.user.id]
+        choices = [
+            app_commands.Choice(name=role.name, value=str(role.id)) 
+            for rid in owned_role_ids 
+            if (role := interaction.guild.get_role(rid)) and current.lower() in role.name.lower()
+        ]
+        return choices[:25]
+
+    # --- Combined User Command ---
     @app_commands.command(name="personal-role", description="Create or update your personal custom role.")
-    @app_commands.describe(name="The name for your role.", color="The color in hex format (e.g., #A020F0).")
-    async def personal_role(self, interaction: discord.Interaction, name: str, color: str):
-        if not await self._is_feature_enabled(interaction): return
+    @app_commands.describe(
+        action="Whether to create a new role or update an existing one",
+        name="The name for the role (required for create, optional for update)",
+        color="The color in hex format (e.g., #A020F0)",
+        primary="Make this your primary role? (sets name color)",
+        role="The existing role to update (required for update)"
+    )
+    @app_commands.choices(action=[
+        app_commands.Choice(name="Create New Role", value="create"),
+        app_commands.Choice(name="Update Existing Role", value="update")
+    ])
+    @app_commands.autocomplete(role=role_autocomplete)
+    async def personal_role(
+        self, 
+        interaction: discord.Interaction, 
+        action: str,
+        name: Optional[str] = None,
+        color: Optional[str] = None,
+        primary: Optional[bool] = None,
+        role: Optional[str] = None
+    ):
+        if not await self._is_feature_enabled(interaction):
+            return
         await interaction.response.defer(ephemeral=True)
+        
+        if action == "create":
+            await self._handle_create_role(interaction, name, color, primary)
+        elif action == "update":
+            await self._handle_update_role(interaction, role, name, color, primary)
 
+    async def _handle_create_role(self, interaction: discord.Interaction, name: Optional[str], color: Optional[str], primary: Optional[bool]):
+        if not name:
+            return await interaction.followup.send("❌ Role name is required when creating a new role.")
+        
+        if not color:
+            return await interaction.followup.send("❌ Color is required when creating a new role.")
+        
         if not self._validate_role_name(name):
             return await interaction.followup.send(self.personality["invalid_name"])
+        
         discord_color = self._hex_to_discord_color(color)
         if discord_color is None:
             return await interaction.followup.send(self.personality["invalid_color"])
-            
-        guild_data = await self._get_cached_guild_data(interaction.guild)
-        if not guild_data.get("can_manage_roles"):
-            return await interaction.followup.send("I'm missing the 'Manage Roles' permission.")
-        if not guild_data.get("target_role"):
-            return await interaction.followup.send("An admin needs to set a target role first using `/custom-roles-admin`.")
 
-        user_roles_data = await self.data_manager.get_data("user_roles")
-        guild_id, user_id = str(interaction.guild.id), str(interaction.user.id)
-        user_roles = user_roles_data.setdefault(guild_id, {})
-        
-        existing_role_id = user_roles.get(user_id, {}).get("role_id")
-        existing_role = interaction.guild.get_role(existing_role_id) if existing_role_id else None
+        target_role = await self._get_target_role(interaction.user)
+        if not target_role:
+            return await interaction.followup.send("❌ An admin needs to set a target role first.")
 
         try:
-            role_to_update = existing_role or await interaction.guild.create_role(name=name, reason=f"Created by {interaction.user.display_name}")
-            await role_to_update.edit(name=name, color=discord_color)
-            if not existing_role: await interaction.user.add_roles(role_to_update)
+            new_role = await interaction.guild.create_role(
+                name=name, 
+                color=discord_color, 
+                reason=f"Tika Custom Role by {interaction.user}"
+            )
+            await interaction.user.add_roles(new_role)
+            
+            guild_id_str = str(interaction.guild.id)
+            self.roles_cache.setdefault(guild_id_str, {})[str(new_role.id)] = interaction.user.id
+            
+            # Default primary to True if not specified
+            is_primary = primary if primary is not None else True
+            
+            if is_primary:
+                await self._set_primary_role(interaction.user, new_role, target_role)
+            else:
+                await self._position_role_below_target(new_role, target_role)
 
-            await self._position_role(role_to_update, interaction.guild)
-            user_roles[user_id] = {"role_id": role_to_update.id}
-            await self.data_manager.save_data("user_roles", user_roles_data)
-
-            frustration = get_frustration_level(self.bot, interaction)
-            response_index = min(frustration, len(self.personality["set_responses"]) - 1)
-            await interaction.followup.send(self.personality["set_responses"][response_index])
-
+            await self._save_all_data()
+            await interaction.followup.send(self.personality["set_responses"][0])
         except discord.Forbidden:
-            await interaction.followup.send("I can't do that. My role is probably too low.")
+            await interaction.followup.send("❌ I can't do that. My role is probably too low.")
         except Exception as e:
-            self.logger.error("Error in /personal-role", exc_info=e)
-            await interaction.followup.send("Something went wrong on my end. Sorry.")
+            self.logger.error("Error in personal-role create", exc_info=e)
+            await interaction.followup.send("❌ Something went wrong.")
 
-    @app_commands.command(name="custom-roles-list", description="View your custom role or another user's.")
-    @app_commands.describe(user="The user whose role you want to view (optional).")
-    async def custom_roles_list(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
-        if not await self._is_feature_enabled(interaction): return
-        target_user = user or interaction.user
-        await interaction.response.defer(ephemeral=True)
-        role = await self._get_user_role(target_user)
+    async def _handle_update_role(self, interaction: discord.Interaction, role: Optional[str], name: Optional[str], color: Optional[str], primary: Optional[bool]):
         if not role:
-            return await interaction.followup.send(f"{target_user.display_name} doesn't have a custom role.")
+            return await interaction.followup.send("❌ You must select a role to update.")
         
-        embed = discord.Embed(
-            title=f"Custom Role for {target_user.display_name}",
-            description=f"Here are the details for the **{role.name}** role.",
-            color=role.color
-        )
-        embed.set_thumbnail(url=target_user.display_avatar.url)
-        embed.add_field(name="Color", value=f"`{str(role.color).upper()}`")
-        embed.add_field(name="Position", value=role.position)
-        await interaction.followup.send(embed=embed)
+        try:
+            role_obj = interaction.guild.get_role(int(role))
+            if not role_obj:
+                raise ValueError("Role not found")
+        except (ValueError, TypeError):
+            return await interaction.followup.send("❌ Invalid role selected or role no longer exists.")
+        
+        if self.roles_cache.get(str(interaction.guild.id), {}).get(str(role_obj.id)) != interaction.user.id:
+            return await interaction.followup.send("❌ Hmph. That's not your role to edit.")
 
-    # --- Admin Command ---
-    @app_commands.command(name="custom-roles-admin", description="[Admin] Configure the custom role system.")
-    @app_commands.default_permissions(administrator=True)
-    @is_bot_admin()
+        edit_kwargs, changes = {}, []
+        
+        if name:
+            if not self._validate_role_name(name):
+                return await interaction.followup.send(self.personality["invalid_name"])
+            edit_kwargs["name"] = name
+            changes.append(f"name to **{name}**")
+
+        if color:
+            discord_color = self._hex_to_discord_color(color)
+            if discord_color is None:
+                return await interaction.followup.send(self.personality["invalid_color"])
+            edit_kwargs["color"] = discord_color
+            changes.append(f"color to `{color}`")
+
+        try:
+            old_name = role_obj.name
+            if edit_kwargs:
+                await role_obj.edit(**edit_kwargs)
+            
+            if primary is not None:
+                target_role = await self._get_target_role(interaction.user)
+                if not target_role:
+                    return await interaction.followup.send("❌ Target role not set.")
+                
+                if primary:
+                    await self._set_primary_role(interaction.user, role_obj, target_role)
+                    changes.append("set as primary")
+                else:
+                    await self._position_role_below_target(role_obj, target_role)
+                    changes.append("unset as primary")
+
+            if not changes:
+                return await interaction.followup.send("❌ You didn't specify anything to change.")
+            
+            await interaction.followup.send(f"✅ Updated role **{old_name}**: " + ", ".join(changes) + ".")
+        except discord.Forbidden:
+            await interaction.followup.send("❌ I can't do that. My role is probably too low.")
+        except Exception as e:
+            self.logger.error("Error in personal-role update", exc_info=e)
+            await interaction.followup.send("❌ Something went wrong.")
+
+    # --- Combined Admin Command ---
+    @app_commands.command(name="custom-roles-admin", description="[Admin] Manage the custom role system.")
     @app_commands.describe(
-        action="The administrative action to perform.",
-        role="The target role to place personal roles above (for 'set-target')."
+        action="What admin action to perform",
+        target_type="For set-target: Is this for regular users or admins?",
+        role="The role to use (for set-target or register)",
+        user="The user who owns the role (for register only)"
     )
-    @app_commands.choices(action=[
-        app_commands.Choice(name="Set Target Role", value="set-target"),
-        app_commands.Choice(name="Cleanup Orphaned Roles", value="cleanup"),
-    ])
-    async def custom_roles_admin(self, interaction: discord.Interaction, action: str, role: Optional[discord.Role] = None):
-        if not await self._is_feature_enabled(interaction): return
-        await interaction.response.defer(ephemeral=True)
-
-        # --- Set Target Logic ---
+    @app_commands.choices(
+        action=[
+            app_commands.Choice(name="Set Target Role", value="set-target"),
+            app_commands.Choice(name="View Configuration", value="view-config"),
+            app_commands.Choice(name="Register Existing Role", value="register"),
+            app_commands.Choice(name="Cleanup Orphaned Roles", value="cleanup")
+        ],
+        target_type=[
+            app_commands.Choice(name="Regular Users", value="user"),
+            app_commands.Choice(name="Administrators", value="admin")
+        ]
+    )
+    @is_bot_admin()
+    async def custom_roles_admin(
+        self,
+        interaction: discord.Interaction,
+        action: str,
+        target_type: Optional[str] = None,
+        role: Optional[discord.Role] = None,
+        user: Optional[discord.Member] = None
+    ):
+        if not await self._is_feature_enabled(interaction):
+            return
         if action == "set-target":
-            if not role:
-                return await interaction.followup.send("You must provide a `role` to set as the target.")
-            if role.position >= interaction.guild.me.top_role.position:
-                return await interaction.followup.send(self.personality["target_too_high"])
-            
-            settings_data = await self.data_manager.get_data("role_settings")
-            guild_id = str(interaction.guild.id)
-            settings_data.setdefault(guild_id, {})["target_role_id"] = role.id # Now singular
-            await self.data_manager.save_data("role_settings", settings_data)
-            
-            self._guild_cache.pop(f"guild_{guild_id}", None) # Invalidate cache
-            await interaction.followup.send(self.personality["target_set"])
-
-        # --- Cleanup Logic ---
+            await self._handle_set_target(interaction, target_type, role)
+        elif action == "view-config":
+            await self._handle_view_config(interaction)
+        elif action == "register":
+            await self._handle_register_role(interaction, role, user)
         elif action == "cleanup":
-            guild_id = str(interaction.guild.id)
-            user_roles_data = await self.data_manager.get_data("user_roles")
-            guild_roles = user_roles_data.get(guild_id, {})
-            
-            if not guild_roles:
-                return await interaction.followup.send(self.personality["admin_no_cleanup"])
-            
-            to_remove = [uid for uid, data in guild_roles.items() if not interaction.guild.get_role(data.get("role_id"))]
-            if not to_remove:
-                return await interaction.followup.send(self.personality["admin_no_cleanup"])
-            
-            for user_id in to_remove:
-                del guild_roles[user_id]
-            
-            await self.data_manager.save_data("user_roles", user_roles_data)
-            await interaction.followup.send(self.personality["admin_cleanup"].format(count=len(to_remove)))
+            await self._handle_cleanup(interaction)
+
+    async def _handle_set_target(self, interaction: discord.Interaction, target_type: Optional[str], role: Optional[discord.Role]):
+        if not target_type or not role:
+            return await interaction.response.send_message("❌ Both target type and role are required for set-target.", ephemeral=True)
+        
+        guild_settings = self.settings_cache.setdefault(str(interaction.guild.id), {})
+        key = "admin_target_role_id" if target_type == "admin" else "user_target_role_id"
+        guild_settings[key] = role.id
+        await self.data_manager.save_data("role_settings", self.settings_cache)
+        await interaction.response.send_message(f"✅ Set **{role.name}** as the target for **{target_type}** roles.", ephemeral=True)
+
+    async def _handle_view_config(self, interaction: discord.Interaction):
+        guild_settings = self.settings_cache.get(str(interaction.guild.id), {})
+        admin_id = guild_settings.get("admin_target_role_id")
+        user_id = guild_settings.get("user_target_role_id")
+        admin_role = interaction.guild.get_role(admin_id) if admin_id else None
+        user_role = interaction.guild.get_role(user_id) if user_id else None
+        total = len(self.roles_cache.get(str(interaction.guild.id), {}))
+        
+        embed = discord.Embed(title="Custom Roles Configuration", color=discord.Color.blue())
+        embed.add_field(name="Admin Target", value=admin_role.mention if admin_role else "Not Set", inline=True)
+        embed.add_field(name="User Target", value=user_role.mention if user_role else "Not Set", inline=True)
+        embed.add_field(name="Tracked Roles", value=f"{total} total", inline=True)
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def _handle_register_role(self, interaction: discord.Interaction, role: Optional[discord.Role], user: Optional[discord.Member]):
+        if not role or not user:
+            return await interaction.response.send_message("❌ Both role and user are required for register.", ephemeral=True)
+        
+        guild_id_str = str(interaction.guild.id)
+        role_id_str = str(role.id)
+        guild_roles = self.roles_cache.setdefault(guild_id_str, {})
+        
+        if role_id_str in guild_roles:
+            return await interaction.response.send_message("❌ That role is already tracked.", ephemeral=True)
+        
+        guild_roles[role_id_str] = user.id
+        await self.data_manager.save_data("custom_roles_tracking", self.roles_cache)
+        await interaction.response.send_message(f"✅ Registered **{role.name}** to {user.mention}.", ephemeral=True)
+
+    async def _handle_cleanup(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        view = RoleCleanupView(self, interaction.guild, interaction.user.id)
+        await view.populate_items()
+        
+        if not view.roles_to_clean:
+            return await interaction.followup.send("✅ No orphaned custom roles to clean up.")
+        
+        await interaction.followup.send(
+            f"Found **{len(view.roles_to_clean)}** tracked roles with 0 members:",
+            view=view,
+            ephemeral=True
+        )
 
     # --- Helper & Logic Methods ---
-    async def _get_user_role(self, user: discord.Member) -> Optional[discord.Role]:
-        user_roles_data = await self.data_manager.get_data("user_roles")
-        role_id = user_roles_data.get(str(user.guild.id), {}).get(str(user.id), {}).get("role_id")
-        return user.guild.get_role(role_id) if role_id else None
+    async def _save_all_data(self):
+        """Save all cached data to storage."""
+        await asyncio.gather(
+            self.data_manager.save_data("custom_roles_tracking", self.roles_cache),
+            self.data_manager.save_data("user_primary_roles", self.primary_roles_cache)
+        )
+
+    async def _get_target_role(self, member: discord.Member) -> Optional[discord.Role]:
+        """Get the appropriate target role for a member based on their permissions."""
+        settings = self.settings_cache.get(str(member.guild.id), {})
+        key = "admin_target_role_id" if member.guild_permissions.administrator else "user_target_role_id"
+        role_id = settings.get(key)
+        return member.guild.get_role(role_id) if role_id else None
+
+    async def _set_primary_role(self, user: discord.Member, new_primary_role: discord.Role, target_role: discord.Role):
+        """Set a role as the user's primary role and position it appropriately."""
+        guild_id_str = str(user.guild.id)
+        user_id_str = str(user.id)
+        user_primaries = self.primary_roles_cache.setdefault(guild_id_str, {})
+        
+        # Move old primary role down if it exists
+        old_primary_id = user_primaries.get(user_id_str)
+        if old_primary_id:
+            old_primary_role = user.guild.get_role(old_primary_id)
+            if old_primary_role:
+                await self._position_role_below_target(old_primary_role, target_role)
+        
+        # Set new primary role and position it
+        user_primaries[user_id_str] = new_primary_role.id
+        await self._position_role_above_target(new_primary_role, target_role)
+        await self.data_manager.save_data("user_primary_roles", self.primary_roles_cache)
+
+    async def _find_orphaned_roles(self, guild: discord.Guild) -> List[discord.Role]:
+        """Find tracked roles that have no members."""
+        guild_roles_tracked = self.roles_cache.get(str(guild.id), {})
+        orphaned = []
+        
+        for role_id_str in guild_roles_tracked:
+            role = guild.get_role(int(role_id_str))
+            if role and not role.members:
+                orphaned.append(role)
+        
+        return orphaned
+
+    async def _delete_and_untrack_role(self, role: discord.Role) -> bool:
+        """Delete a role and remove it from all tracking."""
+        try:
+            guild_id_str = str(role.guild.id)
+            role_id_str = str(role.id)
+            
+            await role.delete(reason="Tika Custom Role Cleanup")
+            
+            # Remove from roles cache
+            if guild_id_str in self.roles_cache and role_id_str in self.roles_cache[guild_id_str]:
+                del self.roles_cache[guild_id_str][role_id_str]
+            
+            # Remove from primary roles cache
+            if guild_id_str in self.primary_roles_cache:
+                for user_id, primary_id in list(self.primary_roles_cache[guild_id_str].items()):
+                    if primary_id == role.id:
+                        del self.primary_roles_cache[guild_id_str][user_id]
+                        break
+            
+            await self._save_all_data()
+            return True
+        except (discord.Forbidden, discord.HTTPException) as e:
+            self.logger.error(f"Failed to delete role {role.name}: {e}")
+            return False
 
     def _validate_role_name(self, name: str) -> bool:
-        name = name.strip()
-        if not (1 < len(name) <= 100): return False
-        if re.search(r'[@#`\\*_~|]', name): return False
-        return True
+        """Validate that a role name meets Discord's requirements."""
+        cleaned_name = name.strip()
+        return (
+            1 < len(cleaned_name) <= 100 and
+            not re.search(r'[@#`\\*_~|]', cleaned_name)
+        )
 
     def _hex_to_discord_color(self, hex_color: str) -> Optional[discord.Color]:
-        hex_color = hex_color.strip().lstrip('#')
-        if len(hex_color) == 3: hex_color = ''.join([c*2 for c in hex_color])
-        if not re.match(r"^[0-9A-Fa-f]{6}$", hex_color): return None
-        try: return discord.Color(int(hex_color, 16))
-        except ValueError: return None
-
-    async def _get_cached_guild_data(self, guild: discord.Guild) -> Dict:
-        cache_key = f"guild_{guild.id}"
-        now = time.time()
-        if cache_key in self._guild_cache and now - self._last_cache_update.get(cache_key, 0) < self._cache_ttl:
-            return self._guild_cache[cache_key]
-
-        settings_data = await self.data_manager.get_data("role_settings")
-        target_id = settings_data.get(str(guild.id), {}).get("target_role_id")
-        target_role = guild.get_role(target_id) if target_id else None
+        """Convert a hex color string to a Discord Color object."""
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) != 6:
+            return None
         
-        cache_data = {
-            "can_manage_roles": guild.me.guild_permissions.manage_roles,
-            "bot_top_role_pos": guild.me.top_role.position,
-            "target_role": target_role # Now singular
-        }
-        self._guild_cache[cache_key] = cache_data
-        self._last_cache_update[cache_key] = now
-        return cache_data
+        try:
+            return discord.Color(int(hex_color, 16))
+        except ValueError:
+            return None
 
-    async def _position_role(self, role: discord.Role, guild: discord.Guild):
-        async with self._position_lock:
+    async def _position_role_safely(self, role: discord.Role, target_pos: int) -> bool:
+        """Safely position a role with retry logic and rate limiting."""
+        if role.position == target_pos:
+            return True
+        
+        max_retries = 3
+        base_delay = 1.0
+        
+        for attempt in range(max_retries):
             try:
-                guild_data = await self._get_cached_guild_data(guild)
-                if not guild_data["can_manage_roles"] or not guild_data["target_role"]:
-                    return
+                async with self._position_lock:
+                    await role.edit(position=target_pos, reason="Positioning Tika Custom Role")
+                    await asyncio.sleep(0.5)  # Rate limiting
+                    
+                    # Verify the position was actually set
+                    fresh_role = role.guild.get_role(role.id)
+                    if fresh_role and fresh_role.position == target_pos:
+                        return True
+                        
+            except (discord.Forbidden, discord.HTTPException) as e:
+                self.logger.warning(f"Failed to position {role.name} on attempt {attempt+1}: {e}")
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    await asyncio.sleep(delay)
+                else:
+                    return False
+        
+        return False
 
-                target_pos = guild_data["target_role"].position
-                desired_position = min(guild_data["bot_top_role_pos"] - 1, target_pos + 1)
-                
-                if role.position != desired_position:
-                    await role.edit(position=desired_position, reason="Positioning custom role")
-            except Exception as e:
-                self.logger.error(f"Failed to position role {role.id}", exc_info=e)
+    async def _position_role_above_target(self, role: discord.Role, target_role: discord.Role) -> bool:
+        """Position a role above the target role, respecting bot permissions."""
+        bot_top_pos = role.guild.me.top_role.position
+        safe_pos = min(target_role.position + 1, bot_top_pos - 1)
+        return await self._position_role_safely(role, safe_pos)
+
+    async def _position_role_below_target(self, role: discord.Role, target_role: discord.Role) -> bool:
+        """Position a role below the target role."""
+        safe_pos = max(target_role.position, 1)
+        return await self._position_role_safely(role, safe_pos)
 
 async def setup(bot):
     await bot.add_cog(CustomRoles(bot))

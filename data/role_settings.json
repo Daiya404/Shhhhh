@@ -1,20 +1,23 @@
 {
-  "1414334870720741520": {
-    "chapel_config": {
-      "channel_id": 1414334872352329746,
-      "emote": "✨",
-      "threshold": 1
-    },
-    "word_game_channel_id": 1414334873589514329,
-    "detention_channel_id": 1414334872759046249
-  },
   "932255513893290024": {
+    "word_game_channel_id": 1376848991391842435,
     "chapel_config": {
       "channel_id": 1376473391351205888,
       "emote": "✨",
       "threshold": 1
     },
     "detention_channel_id": 1400910784393117797,
-    "word_game_channel_id": 1376848991391842435
+    "user_target_role_id": 932258813770338404
+  },
+  "1416678398457155648": {
+    "chapel_config": {
+      "channel_id": 1417160925332504679,
+      "emote": "✨",
+      "threshold": 1
+    },
+    "user_target_role_id": 1417722333182824499,
+    "admin_target_role_id": 1422805572868378684,
+    "detention_channel_id": 1416927987432947792,
+    "word_game_channel_id": 1416918288818241576
   }
 }
