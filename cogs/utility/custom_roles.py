@@ -7,6 +7,7 @@ import re
 import asyncio
 import time
 from typing import Dict, Optional, List
+from collections import defaultdict
 
 from config.personalities import PERSONALITY_RESPONSES
 from cogs.admin.bot_admin import is_bot_admin
@@ -253,6 +254,7 @@ class CustomRoles(commands.Cog):
         action=[
             app_commands.Choice(name="Set Target Role", value="set-target"),
             app_commands.Choice(name="View Configuration", value="view-config"),
+            app_commands.Choice(name="View All Roles", value="view-all"), # <-- NEW CHOICE
             app_commands.Choice(name="Register Existing Role", value="register"),
             app_commands.Choice(name="Cleanup Orphaned Roles", value="cleanup")
         ],
@@ -280,6 +282,8 @@ class CustomRoles(commands.Cog):
             await self._handle_register_role(interaction, role, user)
         elif action == "cleanup":
             await self._handle_cleanup(interaction)
+        elif action == "view-all": # <-- NEW HANDLER
+            await self._handle_view_all_roles(interaction)
 
     async def _handle_set_target(self, interaction: discord.Interaction, target_type: Optional[str], role: Optional[discord.Role]):
         if not target_type or not role:
@@ -292,6 +296,7 @@ class CustomRoles(commands.Cog):
         await interaction.response.send_message(f"✅ Set **{role.name}** as the target for **{target_type}** roles.", ephemeral=True)
 
     async def _handle_view_config(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True) # Defer early
         guild_settings = self.settings_cache.get(str(interaction.guild.id), {})
         admin_id = guild_settings.get("admin_target_role_id")
         user_id = guild_settings.get("user_target_role_id")
@@ -304,22 +309,23 @@ class CustomRoles(commands.Cog):
         embed.add_field(name="User Target", value=user_role.mention if user_role else "Not Set", inline=True)
         embed.add_field(name="Tracked Roles", value=f"{total} total", inline=True)
         
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
 
     async def _handle_register_role(self, interaction: discord.Interaction, role: Optional[discord.Role], user: Optional[discord.Member]):
+        await interaction.response.defer(ephemeral=True) # Defer early
         if not role or not user:
-            return await interaction.response.send_message("❌ Both role and user are required for register.", ephemeral=True)
+            return await interaction.followup.send("❌ Both role and user are required for register.")
         
         guild_id_str = str(interaction.guild.id)
         role_id_str = str(role.id)
         guild_roles = self.roles_cache.setdefault(guild_id_str, {})
         
         if role_id_str in guild_roles:
-            return await interaction.response.send_message("❌ That role is already tracked.", ephemeral=True)
+            return await interaction.followup.send("❌ That role is already tracked.")
         
         guild_roles[role_id_str] = user.id
         await self.data_manager.save_data("custom_roles_tracking", self.roles_cache)
-        await interaction.response.send_message(f"✅ Registered **{role.name}** to {user.mention}.", ephemeral=True)
+        await interaction.followup.send(f"✅ Registered **{role.name}** to {user.mention}.")
 
     async def _handle_cleanup(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -334,6 +340,69 @@ class CustomRoles(commands.Cog):
             view=view,
             ephemeral=True
         )
+
+    # --- NEW METHOD ---
+    async def _handle_view_all_roles(self, interaction: discord.Interaction):
+        """Generates and sends a list of all tracked roles, grouped by user."""
+        await interaction.response.defer(ephemeral=False)  # Public response
+        guild_id_str = str(interaction.guild.id)
+        
+        guild_roles = self.roles_cache.get(guild_id_str, {})
+        primary_roles = self.primary_roles_cache.get(guild_id_str, {})
+
+        if not guild_roles:
+            return await interaction.followup.send("There are no tracked custom roles on this server.")
+
+        # Invert primary_roles for quick lookup: {user_id: role_id}
+        user_primary_map = {str(uid): pid for str_uid, pid in primary_roles.items() for uid in [int(str_uid)]}
+
+        # Group roles by user
+        user_roles_map = defaultdict(lambda: {'primary': None, 'others': []})
+
+        for role_id_str, user_id in guild_roles.items():
+            role = interaction.guild.get_role(int(role_id_str))
+            if not role:
+                continue # Skip roles that were deleted but not cleaned up yet
+
+            user_id_str = str(user_id)
+            if user_primary_map.get(user_id_str) == role.id:
+                user_roles_map[user_id]['primary'] = role
+            else:
+                user_roles_map[user_id]['others'].append(role)
+
+        # Build the description string
+        description_lines = []
+        sorted_user_ids = sorted(user_roles_map.keys(), key=lambda uid: (interaction.guild.get_member(uid).display_name if interaction.guild.get_member(uid) else str(uid)).lower())
+
+        for user_id in sorted_user_ids:
+            user = interaction.guild.get_member(user_id)
+            user_mention = user.mention if user else f"<@{user_id}> (User Left)"
+            
+            description_lines.append(f"**{user_mention}**:")
+            
+            roles_data = user_roles_map[user_id]
+            primary_role = roles_data['primary']
+            other_roles = sorted(roles_data['others'], key=lambda r: r.name)
+
+            if primary_role:
+                description_lines.append(f"  - **Primary:** {primary_role.mention}")
+            
+            if other_roles:
+                other_mentions = ', '.join(r.mention for r in other_roles)
+                description_lines.append(f"  - **Others:** {other_mentions}")
+            
+            description_lines.append("") # Add a blank line for spacing
+
+        if not description_lines:
+             return await interaction.followup.send("No tracked custom roles were found on this server.")
+
+        embed = discord.Embed(
+            title=f"All Tracked Custom Roles ({len(guild_roles)} total)",
+            description="\n".join(description_lines),
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=embed)
+
 
     # --- Helper & Logic Methods ---
     async def _save_all_data(self):

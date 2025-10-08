@@ -19,5 +19,9 @@
     "admin_target_role_id": 1422805572868378684,
     "detention_channel_id": 1416927987432947792,
     "word_game_channel_id": 1416918288818241576
+  },
+  "1425350962427592708": {
+    "user_target_role_id": 1425414903568535595,
+    "admin_target_role_id": 1425414626052542506
   }
 }
