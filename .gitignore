@@ -4,6 +4,8 @@ __pycache__/
 *.env
 *.sqlite3
 *.zip
-
+.venv/
+.idea/
 # Ignore the entire secrets folder
 secrets/
+.vscode/settings.json
