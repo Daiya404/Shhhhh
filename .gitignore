@@ -8,3 +8,4 @@ __pycache__/
 .idea/
 # Ignore the entire secrets folder
 secrets/
+.vscode/settings.json
