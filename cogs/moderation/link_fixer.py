@@ -11,7 +11,6 @@ from utils.websites import all_websites, Website
 from config.personalities import PERSONALITY_RESPONSES
 
 class LinkFixerView(discord.ui.View):
-    # This view is already efficient, no changes needed.
     def __init__(self, original_message_id: int, original_channel_id: int, original_author_id: int, source_url: str):
         super().__init__(timeout=None)
         self.original_message_id = original_message_id
@@ -42,7 +41,6 @@ class LinkFixer(commands.Cog):
         self.personality = PERSONALITY_RESPONSES["link_fixer"]
         self.data_manager = self.bot.data_manager
 
-        # --- OPTIMIZATIONS ---
         self.settings_cache: Dict = {}
         self.website_map: Dict[str, Website] = {}
         self.combined_pattern: Optional[re.Pattern] = None
@@ -52,20 +50,15 @@ class LinkFixer(commands.Cog):
         self.save_task: Optional[asyncio.Task] = None
 
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
-        """A local check to see if the link_fixer feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        # The feature name here MUST match the one in AVAILABLE_FEATURES
         feature_name = "link_fixer" 
         
         if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
-            # This personality response is just a suggestion; you can create a generic one.
             await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
 
-    # --- COG LIFECYCLE (SETUP & SHUTDOWN) ---
     async def cog_load(self):
-        """Called when the cog is loaded. Builds the combined regex and starts background tasks."""
         self.logger.info("Loading link fixer settings and compiling pattern...")
         self.settings_cache = await self.data_manager.get_data("link_fixer_settings") or {}
         
@@ -75,20 +68,17 @@ class LinkFixer(commands.Cog):
             self.website_map[name] = website_class
         
         if patterns:
-            self.combined_pattern = re.compile("|".join(patterns))
-            self.logger.info(f"Link Fixer ready with {len(all_websites)} patterns.")
+            self.combined_pattern = re.compile("|".join(patterns), re.IGNORECASE)
         
         self.save_task = self.bot.loop.create_task(self._periodic_save())
 
     async def cog_unload(self):
-        """Called on shutdown. Cancels tasks and performs a final save."""
         if self.save_task: self.save_task.cancel()
         if self._is_dirty.is_set():
             self.logger.info("Performing final save for link fixer settings...")
             await self.data_manager.save_data("link_fixer_settings", self.settings_cache)
 
     async def _periodic_save(self):
-        """Background task to save settings to disk only when they have changed."""
         while not self.bot.is_closed():
             try:
                 await self._is_dirty.wait()
@@ -96,14 +86,12 @@ class LinkFixer(commands.Cog):
                 async with self._save_lock:
                     await self.data_manager.save_data("link_fixer_settings", self.settings_cache)
                     self._is_dirty.clear()
-                    self.logger.info("Periodically saved link fixer settings.")
             except asyncio.CancelledError: break
             except Exception as e:
                 self.logger.error(f"Error in link fixer periodic save task: {e}", exc_info=True)
                 await asyncio.sleep(120)
 
     async def check_and_fix_link(self, message: discord.Message) -> bool:
-        """Optimized message check that performs a single regex scan and handles spoilers."""
         if not message.guild or message.author.bot or not self.combined_pattern:
             return False
 
@@ -114,25 +102,19 @@ class LinkFixer(commands.Cog):
 
         for match in matches:
             match_start, match_end = match.start(), match.end()
-
-            # Find the last potential spoiler start before the match
             last_spoiler_before = content.rfind('||', 0, match_start)
-            # Find the first potential spoiler end after the match
             first_spoiler_after = content.find('||', match_end)
 
             is_spoiler = False
-            # Check if the link is enclosed in a valid pair of spoiler tags
             if last_spoiler_before != -1 and first_spoiler_after != -1:
-                # To be a valid pair, there must not be another "||" between the opening tag and our link.
                 if content.find('||', last_spoiler_before + 2, match_start) == -1:
                     is_spoiler = True
 
             asyncio.create_task(self.process_link_fix(message, match, is_spoiler))
         
-        return True # Tell the feature manager this message has been handled.
+        return True
 
     async def process_link_fix(self, message: discord.Message, match: re.Match, is_spoiler: bool):
-        """Handles the actual fixing in the background to not block the bot."""
         website_name = match.lastgroup
         if not website_name: return
 
@@ -152,10 +134,8 @@ class LinkFixer(commands.Cog):
             link_data = await website_class.get_links(match, session=self.bot.http_session)
             if not link_data: return
 
-            # --- MODIFIED: Use the new, simpler formatter ---
             response_content = self._format_response(link_data)
 
-            # If the original was a spoiler, make the reply a spoiler
             if is_spoiler:
                 response_content = f"||{response_content}||"
 
@@ -171,32 +151,25 @@ class LinkFixer(commands.Cog):
                 await message.edit(suppress=True)
                 
         except Exception as e:
-            self.logger.error(f"Failed to fix link for {website_name}: {e}")
+            self.logger.error(f"Failed to fix link for {website_name}: {e}", exc_info=True)
         finally:
             try:
                 await message.remove_reaction("⏳", self.bot.user)
             except (discord.Forbidden, discord.HTTPException):
                 pass
     
-    # --- THIS IS THE NEW, CORRECTED FUNCTION ---
     def _format_response(self, link_data: Dict[str, str]) -> str:
-        """
-        Formats the response string into a simple, robust hyperlink to avoid markdown rendering issues.
-        """
-        display_name = link_data['display_name']
-        fixed_url = link_data['fixed_url']
+        display_name = link_data.get('display_name', 'Link')
+        fixed_url = link_data.get('fixed_url')
         
-        # Case 1: For sites like Instagram that have a specific "fixer" service name
-        if fixer_name := link_data.get("fixer_name"):
-            return f"**[{display_name}]({fixed_url})** • Fixed with *{fixer_name}*"
+        if not fixed_url: return "Could not fix link."
 
-        # Case 2: For sites like Twitter, Reddit, TikTok that have an author
         if author_name := link_data.get("author_name"):
-            # Combine display name and author into one clean link
-            return f"**[{display_name} by {author_name}]({fixed_url})**"
-            
-        # Case 3: Fallback for sites like Pixiv that have neither
-        return f"**[{display_name}]({fixed_url})**"
+            return f"[{display_name} by {author_name}]({fixed_url})"
+        elif fixer_name := link_data.get("fixer_name"):
+            return f"[{display_name}]({fixed_url}) • Fixed with *{fixer_name}*"
+        else:
+            return f"[{display_name}]({fixed_url})"
 
     @app_commands.command(name="linkfixer-settings", description="Enable or disable link fixing for yourself.")
     @app_commands.describe(website="The website you want to configure for yourself.", state="Whether to turn fixing 'On' or 'Off' for your links.")

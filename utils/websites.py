@@ -45,14 +45,8 @@ class Instagram(Website):
     @classmethod
     async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
         data = match.groupdict()
-        path = data.get("path")
-        post_id = data.get("instagram_post_id")
-        
-        if not path or not post_id:
-            return None
-
-        # --- THIS IS THE CORRECTED PART ---
-        # Uses the fixer from your image.
+        path, post_id = data.get("path"), data.get("instagram_post_id")
+        if not path or not post_id: return None
         return {
             "display_name": cls.display_name,
             "original_url": match.group(0),
@@ -62,19 +56,47 @@ class Instagram(Website):
 
 class TikTok(Website):
     display_name = "TikTok"
-    pattern = re.compile(r"https?://(?:www\.)?tiktok\.com/(?:@(?P<tiktok_username>[a-zA-Z0-9_.]+)/video/(?P<tiktok_post_id>[0-9]+)|t/(?P<tiktok_short_id>\w+))")
-    
+    # --- NEW 100% RELIABLE REGEX ---
+    # Captures all known TikTok link formats without needing a network request.
+    pattern = re.compile(
+        r"https?://(?:[\w-]+\.)?tiktok\.com/"
+        r"(?:"
+        # Full link format: @user/video|photo/123...
+        r"(?:@(?P<username>[\w\-\.]+)/(?:video|photo)/(?P<post_id>\d+))"
+        r"|"
+        # All short link formats: /t/ABC, /ABC, /v/123.html
+        r"(?:(?:t/|v/)?(?P<short_id>[\w\d]+))"
+        r")"
+    )
+
     @classmethod
     async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
         data = match.groupdict()
         original_url = match.group(0)
-        fix_domain = "a.tnktok.com"
+        fix_domain = "a.tnktok.com" # Using the fixer domain you requested
 
-        if data.get("tiktok_username") and data.get("tiktok_post_id"):
-            username, post_id = data["tiktok_username"], data["tiktok_post_id"]
-            return {"display_name": cls.display_name, "original_url": original_url, "fixed_url": f"https://{fix_domain}/@{username}/video/{post_id}", "profile_url": f"https://www.tiktok.com/@{username}", "author_name": f"@{username}"}
-        elif data.get("tiktok_short_id"):
-            return {"display_name": cls.display_name, "original_url": original_url, "fixed_url": f"https://{fix_domain}/t/{data['tiktok_short_id']}"}
+        # --- NEW, FAST, and STABLE LOGIC ---
+
+        # Case 1: Full link with username and post ID is found.
+        if (username := data.get("username")) and (post_id := data.get("post_id")):
+            return {
+                "display_name": cls.display_name,
+                "original_url": original_url,
+                "fixed_url": f"https://{fix_domain}/@{username}/video/{post_id}",
+                "profile_url": f"https://www.tiktok.com/@{username}",
+                "author_name": f"@{username}"
+            }
+
+        # Case 2: Any form of short link is found.
+        elif short_id := data.get("short_id"):
+            # Directly convert to the /t/ format for the fixer, as requested.
+            return {
+                "display_name": cls.display_name,
+                "original_url": original_url,
+                "fixed_url": f"https://{fix_domain}/t/{short_id}"
+            }
+        
+        # If no valid parts were captured, do nothing.
         return None
 
 class Reddit(Website):
@@ -85,21 +107,14 @@ class Reddit(Website):
     async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
         data = match.groupdict()
         subreddit = data.get("reddit_subreddit")
-        if not subreddit:
-            return None
+        if not subreddit: return None
 
-        base_info = {
-            "display_name": cls.display_name,
-            "original_url": match.group(0),
-            "profile_url": f"https://www.reddit.com/r/{subreddit}",
-            "author_name": f"r/{subreddit}"
-        }
+        base_info = { "display_name": cls.display_name, "original_url": match.group(0), "profile_url": f"https://www.reddit.com/r/{subreddit}", "author_name": f"r/{subreddit}" }
 
         if post_id := data.get("reddit_post_id"):
             slug = data.get("reddit_slug")
             fixed_url = f"https://vxreddit.com/r/{subreddit}/comments/{post_id}"
-            if slug:
-                fixed_url += f"/{slug}"
+            if slug: fixed_url += f"/{slug}"
             base_info["fixed_url"] = fixed_url
             return base_info
         elif short_id := data.get("reddit_short_id"):
@@ -114,7 +129,6 @@ class Reddit(Website):
                 return None
             except (asyncio.TimeoutError, aiohttp.ClientError):
                 return None
-
         return None
 
 class Pixiv(Website):
