@@ -1,31 +1,67 @@
 {
   "932255513893290024": {
-    "global": {},
+    "global": {
+      "whole_word": {},
+      "exact": {}
+    },
     "users": {
-      "1355387730653348082": {},
-      "858236727993958412": {}
+      "1355387730653348082": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "858236727993958412": {
+        "whole_word": {},
+        "exact": {}
+      }
     },
     "settings": {
       "default_action": "warn_delete"
     }
   },
   "1416678398457155648": {
-    "global": {},
+    "global": {
+      "whole_word": {},
+      "exact": {}
+    },
     "users": {
-      "600261627639496714": {},
-      "763025727586959361": {},
-      "1155196194742607902": {},
-      "1412318160480374845": {},
-      "1394085031764299886": {},
-      "1409989230708523099": {},
-      "1318927242910371852": {}
+      "600261627639496714": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "763025727586959361": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "1155196194742607902": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "1412318160480374845": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "1394085031764299886": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "1409989230708523099": {
+        "whole_word": {},
+        "exact": {}
+      },
+      "1318927242910371852": {
+        "whole_word": {},
+        "exact": {}
+      }
     },
     "settings": {
       "default_action": "warn_delete"
     }
   },
   "1417182204290666569": {
-    "global": {},
+    "global": {
+      "whole_word": {},
+      "exact": {}
+    },
     "users": {},
     "settings": {
       "default_action": "warn_delete"
@@ -33,17 +69,14 @@
   },
   "1425350962427592708": {
     "global": {
-      "henry": {
-        "action": "warn_delete",
-        "severity": 1,
-        "created_by": 1409989230708523099,
-        "created_at": 1761349529
-      },
-      "stm": {
-        "action": "warn_delete",
-        "severity": 1,
-        "created_by": 1409989230708523099,
-        "created_at": 1761349685
+      "whole_word": {},
+      "exact": {
+        "vro": {
+          "action": "warn_delete",
+          "severity": 1,
+          "created_by": 1409989230708523099,
+          "created_at": 1761399681
+        }
       }
     },
     "users": {},
