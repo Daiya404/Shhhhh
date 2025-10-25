@@ -84,7 +84,7 @@ class WordBlocker(commands.Cog):
     async def _update_guild_cache(self, guild_id: str, guild_data: dict):
         try:
             global_words = list(guild_data.get("global", {}).keys())
-            global_pattern = self._build_optimized_pattern(global_words)
+            global_pattern = self._build_optimized_pattern(global_words, use_boundaries=True)
             user_patterns = {uid: self._build_optimized_pattern(list(uwords.keys())) for uid, uwords in guild_data.get("users", {}).items()}
             whitelist_words = list(self.whitelist_cache.get(guild_id, {}).keys())
             whitelist_pattern = self._build_optimized_pattern(whitelist_words, use_boundaries=True)
@@ -113,13 +113,20 @@ class WordBlocker(commands.Cog):
         self.performance_stats["total_checks"] += 1
         if not message.guild or message.author.bot: return False
         
+        
+        # Get the content once, lowercase for consistent checking.
+        content = message.content.lower()
+
+        if ('http://' in content or 'https://' in content) and 'tenor.com' not in content:
+            return False
+
         guild_id = str(message.guild.id)
         patterns = self.compiled_patterns.get(guild_id)
         if not patterns: return False
         
         if self._check_whitelist(message.content, guild_id): return False
         
-        content = message.content.lower()
+        # The content variable is already defined above, so we can reuse it
         triggered_word = None
 
         # --- FIX STARTS HERE: REMOVED DUPLICATE AND BUGGY CODE BLOCK ---

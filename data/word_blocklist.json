@@ -30,5 +30,25 @@
     "settings": {
       "default_action": "warn_delete"
     }
+  },
+  "1425350962427592708": {
+    "global": {
+      "henry": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1761349529
+      },
+      "stm": {
+        "action": "warn_delete",
+        "severity": 1,
+        "created_by": 1409989230708523099,
+        "created_at": 1761349685
+      }
+    },
+    "users": {},
+    "settings": {
+      "default_action": "warn_delete"
+    }
   }
 }
