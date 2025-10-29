@@ -1,21 +1,28 @@
 # utils/websites.py
+"""
+Website link fixing utilities for social media embeds.
+
+This module defines Website classes that convert standard social media URLs
+into embed-friendly alternatives for better Discord integration.
+"""
+
 import re
 from abc import ABC, abstractmethod
 from typing import Optional, Dict
 import aiohttp
-import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
 
+
 class Website(ABC):
     """
-    Abstract base class defining the contract for fixable websites.
+    Abstract base class for fixable websites.
     
-    Subclasses must implement:
-    - display_name: Human-readable name for the content type
-    - pattern: Compiled regex pattern to match URLs
-    - get_links: Async method to extract and fix the link
+    Each subclass represents a social media platform and defines:
+    - display_name: Human-readable content type (e.g., "Tweet", "Post")
+    - pattern: Compiled regex to match URLs from that platform
+    - get_links: Async method to transform URLs into embed-friendly versions
     """
     display_name: str
     pattern: re.Pattern
@@ -28,47 +35,55 @@ class Website(ABC):
         session: aiohttp.ClientSession
     ) -> Optional[Dict[str, str]]:
         """
-        Extract link information from a regex match.
+        Transform a matched URL into embed-friendly link data.
         
         Args:
-            match: Regex match object containing URL components
-            session: aiohttp session for making requests if needed
+            match: Regex match containing URL components
+            session: aiohttp session for API requests (if needed)
             
         Returns:
-            Dictionary with keys:
+            Dictionary containing:
                 - display_name: Content type (e.g., "Tweet", "Post")
-                - original_url: The original matched URL
-                - fixed_url: The embed-friendly URL
-                - author_name: (Optional) Username or author
-                - profile_url: (Optional) Link to author's profile
-                - fixer_name: (Optional) Name of the fixing service
-            Returns None if the link cannot be processed.
+                - original_url: The matched URL
+                - fixed_url: Embed-friendly URL
+                - author_name: (Optional) Username/author
+                - profile_url: (Optional) Author's profile link
+                - fixer_name: (Optional) Embed service name
+            Returns None if URL cannot be processed.
         """
         pass
 
     @classmethod
     def _safe_extract_groups(cls, match: re.Match, *keys: str) -> tuple:
         """
-        Safely extract named groups from a regex match.
+        Safely extract named groups from regex match.
         
         Args:
             match: Regex match object
             *keys: Named group keys to extract
             
         Returns:
-            Tuple of extracted values (None for missing keys)
+            Tuple of values (None for missing keys)
         """
         data = match.groupdict()
         return tuple(data.get(key) for key in keys)
 
-# --- Define all supported websites here ---
+    @classmethod
+    def _validate_required(cls, *values) -> bool:
+        """Check if all required values are present."""
+        return all(v is not None for v in values)
+
+
+# ============================================================================
+# Website Implementations
+# ============================================================================
 
 class Twitter(Website):
     """
-    Fix Twitter/X.com links using fxtwitter.
+    Twitter/X link fixer using fxtwitter.
     
-    Handles URLs from both twitter.com and x.com domains,
-    including various subdomains (www, mobile, etc.)
+    Supports: twitter.com and x.com (all subdomains)
+    Example: twitter.com/user/status/123 → fxtwitter.com/user/status/123
     """
     display_name = "Tweet"
     pattern = re.compile(
@@ -79,17 +94,11 @@ class Twitter(Website):
     )
     
     @classmethod
-    async def get_links(
-        cls, 
-        match: re.Match, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict[str, str]]:
-        username, post_id = cls._safe_extract_groups(
-            match, "twitter_username", "twitter_post_id"
-        )
+    async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
+        username, post_id = cls._safe_extract_groups(match, "twitter_username", "twitter_post_id")
         
-        if not username or not post_id:
-            logger.warning("Twitter URL missing username or post ID")
+        if not cls._validate_required(username, post_id):
+            logger.warning("Twitter URL missing required fields")
             return None
             
         return {
@@ -100,12 +109,13 @@ class Twitter(Website):
             "author_name": username
         }
 
+
 class Instagram(Website):
     """
-    Fix Instagram links using d.vxinstagram.
+    Instagram link fixer using vxinstagram.
     
-    Supports posts, reels, and all Instagram content types.
-    Handles various subdomains.
+    Supports: Posts, reels, and all content types
+    Example: instagram.com/p/ABC → d.vxinstagram.com/p/ABC
     """
     display_name = "Instagram"
     pattern = re.compile(
@@ -115,17 +125,11 @@ class Instagram(Website):
     )
 
     @classmethod
-    async def get_links(
-        cls, 
-        match: re.Match, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict[str, str]]:
-        path, post_id = cls._safe_extract_groups(
-            match, "instagram_path", "instagram_post_id"
-        )
+    async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
+        path, post_id = cls._safe_extract_groups(match, "instagram_path", "instagram_post_id")
         
-        if not path or not post_id:
-            logger.warning("Instagram URL missing path or post ID")
+        if not cls._validate_required(path, post_id):
+            logger.warning("Instagram URL missing required fields")
             return None
             
         return {
@@ -135,34 +139,28 @@ class Instagram(Website):
             "fixer_name": "vxinstagram"
         }
 
+
 class TikTok(Website):
     """
-    Fix TikTok links using vxtiktok.
+    TikTok link fixer using vxtiktok.
     
-    Supports multiple URL formats:
-    - Full format: tiktok.com/@user/video/123
-    - Short links: tiktok.com/t/ABC or vm.tiktok.com/ABC
-    - Video pages: tiktok.com/v/123.html
+    Supports multiple formats:
+    - Full: tiktok.com/@user/video/123
+    - Short: tiktok.com/t/ABC or vm.tiktok.com/ABC
     """
     display_name = "TikTok"
     pattern = re.compile(
         r"https?://(?:[\w-]+\.)?tiktok\.com/"
         r"(?:"
-        # Full link: @user/video|photo/123...
         r"(?:@(?P<tiktok_username>[\w\-\.]+)/(?:video|photo)/(?P<tiktok_post_id>\d+))"
         r"|"
-        # Short links: /t/ABC, /ABC, /v/123.html
         r"(?:(?:t/|v/)?(?P<tiktok_short_id>[\w\d]+))"
         r")",
         re.IGNORECASE
     )
 
     @classmethod
-    async def get_links(
-        cls, 
-        match: re.Match, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict[str, str]]:
+    async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
         username, post_id, short_id = cls._safe_extract_groups(
             match, "tiktok_username", "tiktok_post_id", "tiktok_short_id"
         )
@@ -170,7 +168,7 @@ class TikTok(Website):
         original_url = match.group(0)
         fix_domain = "vxtiktok.com"
 
-        # Full URL format with username
+        # Full URL with username
         if username and post_id:
             return {
                 "display_name": cls.display_name,
@@ -180,42 +178,40 @@ class TikTok(Website):
                 "author_name": f"@{username}"
             }
         
-        # Short URL format
-        elif short_id:
+        # Short URL
+        if short_id:
             return {
                 "display_name": cls.display_name,
                 "original_url": original_url,
                 "fixed_url": f"https://{fix_domain}/t/{short_id}"
             }
         
-        logger.warning("TikTok URL matched pattern but no valid groups found")
+        logger.warning("TikTok URL matched but no valid groups found")
         return None
+
 
 class Reddit(Website):
     """
-    Fix Reddit links using rxddit.
+    Reddit link fixer using rxddit.
     
-    Supports both regular post URLs and short share links.
-    Handles various subdomains (www, old, new, etc.)
+    Supports:
+    - Full post URLs: reddit.com/r/sub/comments/123/title
+    - Share links: reddit.com/r/sub/s/ABC
     """
     display_name = "Post"
     pattern = re.compile(
         r"https?://(?:[\w-]+\.)?reddit\.com/"
         r"r/(?P<reddit_subreddit>\w+)/"
         r"(?:"
-        r"comments/(?P<reddit_post_id>\w+)(?:/\S*)?"  # Full post URL
+        r"comments/(?P<reddit_post_id>\w+)(?:/\S*)?"
         r"|"
-        r"s/(?P<reddit_share_id>\w+)"  # Short share URL
+        r"s/(?P<reddit_share_id>\w+)"
         r")",
         re.IGNORECASE
     )
 
     @classmethod
-    async def get_links(
-        cls, 
-        match: re.Match, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict[str, str]]:
+    async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
         subreddit, post_id, share_id = cls._safe_extract_groups(
             match, "reddit_subreddit", "reddit_post_id", "reddit_share_id"
         )
@@ -234,24 +230,24 @@ class Reddit(Website):
 
         # Full post URL
         if post_id:
-            base_info["fixed_url"] = (
-                f"https://{fix_domain}/r/{subreddit}/comments/{post_id}"
-            )
+            base_info["fixed_url"] = f"https://{fix_domain}/r/{subreddit}/comments/{post_id}"
             return base_info
         
-        # Short share URL
-        elif share_id:
+        # Share link (includes subreddit in path)
+        if share_id:
             base_info["fixed_url"] = f"https://{fix_domain}/r/{subreddit}/s/{share_id}"
             return base_info
         
-        logger.warning("Reddit URL matched pattern but no post ID or share ID found")
+        logger.warning("Reddit URL matched but missing post/share ID")
         return None
+
 
 class Pixiv(Website):
     """
-    Fix Pixiv artwork links using phixiv.
+    Pixiv artwork fixer using phixiv.
     
     Supports both English and Japanese artwork URLs.
+    Example: pixiv.net/artworks/123 → phixiv.net/artworks/123
     """
     display_name = "Artwork"
     pattern = re.compile(
@@ -261,11 +257,7 @@ class Pixiv(Website):
     )
 
     @classmethod
-    async def get_links(
-        cls, 
-        match: re.Match, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict[str, str]]:
+    async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
         post_id = cls._safe_extract_groups(match, "pixiv_post_id")[0]
         
         if not post_id:
@@ -278,11 +270,13 @@ class Pixiv(Website):
             "fixed_url": f"https://phixiv.net/artworks/{post_id}"
         }
 
+
 class Bluesky(Website):
     """
-    Fix Bluesky links using bskyx.
+    Bluesky link fixer using bskyx.
     
-    Supports both profile.bsky.social and bsky.app domains.
+    Supports both bsky.app and bsky.social domains.
+    Example: bsky.app/profile/user.bsky.social/post/ABC → bskyx.app/profile/user.bsky.social/post/ABC
     """
     display_name = "Post"
     pattern = re.compile(
@@ -293,17 +287,11 @@ class Bluesky(Website):
     )
 
     @classmethod
-    async def get_links(
-        cls, 
-        match: re.Match, 
-        session: aiohttp.ClientSession
-    ) -> Optional[Dict[str, str]]:
-        handle, post_id = cls._safe_extract_groups(
-            match, "bluesky_handle", "bluesky_post_id"
-        )
+    async def get_links(cls, match: re.Match, session: aiohttp.ClientSession) -> Optional[Dict[str, str]]:
+        handle, post_id = cls._safe_extract_groups(match, "bluesky_handle", "bluesky_post_id")
         
-        if not handle or not post_id:
-            logger.warning("Bluesky URL missing handle or post ID")
+        if not cls._validate_required(handle, post_id):
+            logger.warning("Bluesky URL missing required fields")
             return None
             
         return {
@@ -314,7 +302,12 @@ class Bluesky(Website):
             "author_name": handle
         }
 
-# --- Master list of all available website fixers ---
+
+# ============================================================================
+# Registry
+# ============================================================================
+
+# Master list of all available website fixers
 all_websites = {
     "twitter": Twitter,
     "tiktok": TikTok,

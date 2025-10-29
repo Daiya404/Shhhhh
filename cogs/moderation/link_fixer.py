@@ -6,7 +6,6 @@ import logging
 import re
 import asyncio
 from typing import Dict, Optional, Set
-from collections import defaultdict
 
 from utils.websites import all_websites, Website
 from config.personalities import PERSONALITY_RESPONSES
@@ -39,26 +38,29 @@ class LinkFixerView(discord.ui.View):
     @discord.ui.button(label="Revert", style=discord.ButtonStyle.secondary, emoji="🔄")
     async def revert_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Revert the link fix by restoring the original message."""
+        # Delete the bot's fixed message
         try:
             await interaction.message.delete()
-        except discord.HTTPException as e:
-            self.logger.warning(f"Failed to delete fixed message: {e}")
+        except discord.HTTPException:
+            pass
         
+        # Restore the original message
         try:
             channel = interaction.client.get_channel(self.original_channel_id)
-            if channel:
-                original_message = await channel.fetch_message(self.original_message_id)
-                await original_message.edit(suppress=False)
-                await interaction.response.send_message(
-                    "Fine, I've reverted it.", 
-                    ephemeral=True, 
-                    delete_after=5
-                )
-            else:
+            if not channel:
                 await interaction.response.send_message(
                     "Could not find the original channel.", 
                     ephemeral=True
                 )
+                return
+                
+            original_message = await channel.fetch_message(self.original_message_id)
+            await original_message.edit(suppress=False)
+            await interaction.response.send_message(
+                "Fine, I've reverted it.", 
+                ephemeral=True, 
+                delete_after=5
+            )
         except discord.NotFound:
             await interaction.response.send_message(
                 "The original message was deleted.", 
@@ -75,8 +77,14 @@ class LinkFixerView(discord.ui.View):
                 ephemeral=True
             )
 
+
 class LinkFixer(commands.Cog):
     """Automatically fixes social media links for better embedding."""
+    
+    # Class constants
+    SAVE_INTERVAL = 60  # Save settings every 60 seconds after changes
+    PROCESSING_CLEANUP_DELAY = 5  # Clean up processing IDs after 5 seconds
+    LINK_FETCH_TIMEOUT = 10.0  # 10 second timeout for fetching link data
     
     def __init__(self, bot):
         self.bot = bot
@@ -88,13 +96,14 @@ class LinkFixer(commands.Cog):
         self.settings_cache: Dict = {}
         self.website_map: Dict[str, Website] = {}
         self.combined_pattern: Optional[re.Pattern] = None
+        self.markdown_link_pattern = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
         
         # Persistent save system
         self._is_dirty = asyncio.Event()
         self._save_lock = asyncio.Lock()
         self.save_task: Optional[asyncio.Task] = None
         
-        # Rate limiting per message to prevent abuse
+        # Rate limiting - prevent duplicate processing
         self._processing_messages: Set[int] = set()
 
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
@@ -114,7 +123,7 @@ class LinkFixer(commands.Cog):
 
     async def cog_load(self):
         """Initialize settings, compile patterns, and start background tasks."""
-        self.logger.info("Loading link fixer settings and compiling pattern...")
+        self.logger.info("Loading link fixer settings...")
         
         # Load cached settings
         self.settings_cache = await self.data_manager.get_data("link_fixer_settings") or {}
@@ -127,15 +136,18 @@ class LinkFixer(commands.Cog):
         
         if patterns:
             self.combined_pattern = re.compile("|".join(patterns), re.IGNORECASE)
-            self.logger.info(f"Compiled pattern for {len(patterns)} websites")
+            self.logger.info(f"Compiled pattern for {len(patterns)} websites: {', '.join(all_websites.keys())}")
         else:
             self.logger.warning("No website patterns available")
         
         # Start periodic save task
         self.save_task = self.bot.loop.create_task(self._periodic_save())
+        self.logger.info("Link fixer loaded successfully")
 
     async def cog_unload(self):
         """Clean up tasks and perform final save."""
+        self.logger.info("Unloading link fixer...")
+        
         if self.save_task:
             self.save_task.cancel()
             try:
@@ -143,6 +155,7 @@ class LinkFixer(commands.Cog):
             except asyncio.CancelledError:
                 pass
         
+        # Final save if there are unsaved changes
         if self._is_dirty.is_set():
             self.logger.info("Performing final save for link fixer settings...")
             async with self._save_lock:
@@ -153,7 +166,7 @@ class LinkFixer(commands.Cog):
         while not self.bot.is_closed():
             try:
                 await self._is_dirty.wait()
-                await asyncio.sleep(60)  # Wait 60 seconds after changes
+                await asyncio.sleep(self.SAVE_INTERVAL)
                 
                 async with self._save_lock:
                     await self.data_manager.save_data("link_fixer_settings", self.settings_cache)
@@ -163,8 +176,8 @@ class LinkFixer(commands.Cog):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                self.logger.error(f"Error in link fixer periodic save task: {e}", exc_info=True)
-                await asyncio.sleep(120)  # Wait longer after error
+                self.logger.error(f"Error in link fixer periodic save: {e}", exc_info=True)
+                await asyncio.sleep(self.SAVE_INTERVAL * 2)  # Wait longer after error
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -183,31 +196,35 @@ class LinkFixer(commands.Cog):
 
         content = message.content
         
-        # First check if entire message is in spoiler
+        # Check if entire message is spoiler-tagged
         is_spoiler = content.strip().startswith('||') and content.strip().endswith('||')
         
-        # Remove markdown link syntax [text](url) to get plain URLs for matching
-        plain_content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'\2', content)
+        # Remove markdown link syntax [text](url) to extract URLs for matching
+        plain_content = self.markdown_link_pattern.sub(r'\2', content)
         
+        # Find all matching links
         matches = list(self.combined_pattern.finditer(plain_content))
         if not matches:
             return False
 
+        # Mark message as being processed
         self._processing_messages.add(message.id)
         
         try:
+            # Process each link found
             for match in matches:
-                self.logger.info(f"Processing link: {match.group(0)[:50]}... | Spoiler: {is_spoiler}")
-                asyncio.create_task(self._process_link_fix_safe(message, match, is_spoiler))
+                asyncio.create_task(
+                    self._process_link_fix_safe(message, match, is_spoiler)
+                )
         finally:
-            # Clean up after a delay to prevent immediate re-processing
+            # Schedule cleanup of processing ID
             asyncio.create_task(self._cleanup_processing_id(message.id))
         
         return True
 
     async def _cleanup_processing_id(self, message_id: int):
         """Remove message ID from processing set after a delay."""
-        await asyncio.sleep(5)
+        await asyncio.sleep(self.PROCESSING_CLEANUP_DELAY)
         self._processing_messages.discard(message_id)
 
     async def _process_link_fix_safe(self, message: discord.Message, 
@@ -217,7 +234,7 @@ class LinkFixer(commands.Cog):
             await self.process_link_fix(message, match, is_spoiler)
         except Exception as e:
             self.logger.error(
-                f"Unhandled error in link fix processing: {e}", 
+                f"Unhandled error processing link: {e}", 
                 exc_info=True
             )
 
@@ -233,38 +250,26 @@ class LinkFixer(commands.Cog):
             return
         
         # Check user preferences
-        user_settings = (
-            self.settings_cache
-            .get(str(message.guild.id), {})
-            .get("users", {})
-            .get(str(message.author.id), {})
-        )
-        
-        if not user_settings.get(website_name, True):
-            self.logger.debug(
-                f"User {message.author.id} has disabled {website_name} fixing"
-            )
+        if not self._is_user_opted_in(message.guild.id, message.author.id, website_name):
             return
 
         # Add processing reaction
-        try:
-            await message.add_reaction("⏳")
-        except (discord.Forbidden, discord.HTTPException) as e:
-            self.logger.debug(f"Could not add reaction: {e}")
+        await self._add_reaction(message, "⏳")
 
         try:
-            # Get fixed link data
+            # Get fixed link data with timeout
             link_data = await asyncio.wait_for(
                 website_class.get_links(match, session=self.bot.http_session),
-                timeout=10.0  # 10 second timeout
+                timeout=self.LINK_FETCH_TIMEOUT
             )
             
             if not link_data:
                 return
 
+            # Format and send response
             response_content = self._format_response(link_data)
 
-            # Apply spoiler tags to the entire response if needed
+            # Apply spoiler tags if needed
             if is_spoiler:
                 response_content = f"|| {response_content} ||"
 
@@ -284,25 +289,47 @@ class LinkFixer(commands.Cog):
             )
             
             # Suppress original embed if we have permission
-            if message.channel.permissions_for(message.guild.me).manage_messages:
-                try:
-                    await message.edit(suppress=True)
-                except discord.HTTPException as e:
-                    self.logger.debug(f"Could not suppress original message: {e}")
+            await self._suppress_original_embed(message)
                 
         except asyncio.TimeoutError:
-            self.logger.warning(f"Timeout while fixing {website_name} link")
+            self.logger.warning(f"Timeout fetching {website_name} link")
         except Exception as e:
-            self.logger.error(
-                f"Failed to fix link for {website_name}: {e}", 
-                exc_info=True
-            )
+            self.logger.error(f"Failed to fix {website_name} link: {e}", exc_info=True)
         finally:
             # Remove processing reaction
+            await self._remove_reaction(message, "⏳")
+
+    def _is_user_opted_in(self, guild_id: int, user_id: int, website_name: str) -> bool:
+        """Check if user has opted in for this website's link fixing."""
+        user_settings = (
+            self.settings_cache
+            .get(str(guild_id), {})
+            .get("users", {})
+            .get(str(user_id), {})
+        )
+        return user_settings.get(website_name, True)  # Default to enabled
+
+    async def _add_reaction(self, message: discord.Message, emoji: str):
+        """Add a reaction to a message, ignoring errors."""
+        try:
+            await message.add_reaction(emoji)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+    async def _remove_reaction(self, message: discord.Message, emoji: str):
+        """Remove a reaction from a message, ignoring errors."""
+        try:
+            await message.remove_reaction(emoji, self.bot.user)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+
+    async def _suppress_original_embed(self, message: discord.Message):
+        """Suppress the embed on the original message if we have permission."""
+        if message.channel.permissions_for(message.guild.me).manage_messages:
             try:
-                await message.remove_reaction("⏳", self.bot.user)
-            except (discord.Forbidden, discord.HTTPException) as e:
-                self.logger.debug(f"Could not remove reaction: {e}")
+                await message.edit(suppress=True)
+            except discord.HTTPException:
+                pass
     
     def _format_response(self, link_data: Dict[str, str]) -> str:
         """Format the response message with the fixed link."""
@@ -361,6 +388,7 @@ class LinkFixer(commands.Cog):
         if user_id not in self.settings_cache[guild_id]["users"]:
             self.settings_cache[guild_id]["users"][user_id] = {}
         
+        # Update user preference
         user_settings = self.settings_cache[guild_id]["users"][user_id]
         new_state_bool = (state == "on")
         user_settings[website] = new_state_bool
@@ -370,13 +398,14 @@ class LinkFixer(commands.Cog):
         
         # Send confirmation
         response_msg = (
-            self.personality['personal_opt_in'] 
+            self.personality.get('personal_opt_in', 'Link fixing has been enabled.') 
             if new_state_bool 
-            else self.personality['personal_opt_out']
+            else self.personality.get('personal_opt_out', 'Link fixing has been disabled.')
         )
         await interaction.followup.send(
             response_msg.replace("link fixing", f"**{website.title()}** link fixing")
         )
+
 
 async def setup(bot):
     await bot.add_cog(LinkFixer(bot))
