@@ -23,7 +23,8 @@ AVAILABLE_FEATURES = [
     # Utility
     "copy_chapel",
     "custom_roles",
-    "reminders"
+    "reminders",
+    "web_search"
 ]
 
 class FeatureManager(commands.Cog):
