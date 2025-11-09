@@ -9,3 +9,4 @@ __pycache__/
 # Ignore the entire secrets folder
 secrets/
 .vscode/settings.json
+datatika/

@@ -84,11 +84,9 @@ class CustomRoles(commands.Cog):
     async def _is_feature_enabled(self, interaction: discord.Interaction) -> bool:
         """A local check to see if the custom_roles feature is enabled."""
         feature_manager = self.bot.get_cog("FeatureManager")
-        # The feature name here MUST match the one in AVAILABLE_FEATURES
         feature_name = "custom_roles" 
         
         if not feature_manager or not feature_manager.is_feature_enabled(interaction.guild_id, feature_name):
-            # This personality response is just a suggestion; you can create a generic one.
             await interaction.response.send_message(f"Hmph. The {feature_name.replace('_', ' ').title()} feature is disabled on this server.", ephemeral=True)
             return False
         return True
@@ -155,7 +153,9 @@ class CustomRoles(commands.Cog):
         if discord_color is None:
             return await interaction.followup.send(self.personality["invalid_color"])
 
-        target_role = await self._get_target_role(interaction.user)
+        # Get current target role based on CURRENT permissions
+        member = await interaction.guild.fetch_member(interaction.user.id)
+        target_role = await self._get_current_target_role(member)
         if not target_role:
             return await interaction.followup.send("❌ An admin needs to set a target role first.")
 
@@ -165,7 +165,7 @@ class CustomRoles(commands.Cog):
                 color=discord_color, 
                 reason=f"Tika Custom Role by {interaction.user}"
             )
-            await interaction.user.add_roles(new_role)
+            await member.add_roles(new_role)
             
             guild_id_str = str(interaction.guild.id)
             self.roles_cache.setdefault(guild_id_str, {})[str(new_role.id)] = interaction.user.id
@@ -221,7 +221,9 @@ class CustomRoles(commands.Cog):
                 await role_obj.edit(**edit_kwargs)
             
             if primary is not None:
-                target_role = await self._get_target_role(interaction.user)
+                # Get current target role based on CURRENT permissions
+                member = await interaction.guild.fetch_member(interaction.user.id)
+                target_role = await self._get_current_target_role(member)
                 if not target_role:
                     return await interaction.followup.send("❌ Target role not set.")
                 
@@ -254,7 +256,7 @@ class CustomRoles(commands.Cog):
         action=[
             app_commands.Choice(name="Set Target Role", value="set-target"),
             app_commands.Choice(name="View Configuration", value="view-config"),
-            app_commands.Choice(name="View All Roles", value="view-all"), # <-- NEW CHOICE
+            app_commands.Choice(name="View All Roles", value="view-all"),
             app_commands.Choice(name="Register Existing Role", value="register"),
             app_commands.Choice(name="Cleanup Orphaned Roles", value="cleanup")
         ],
@@ -282,7 +284,7 @@ class CustomRoles(commands.Cog):
             await self._handle_register_role(interaction, role, user)
         elif action == "cleanup":
             await self._handle_cleanup(interaction)
-        elif action == "view-all": # <-- NEW HANDLER
+        elif action == "view-all":
             await self._handle_view_all_roles(interaction)
 
     async def _handle_set_target(self, interaction: discord.Interaction, target_type: Optional[str], role: Optional[discord.Role]):
@@ -296,7 +298,7 @@ class CustomRoles(commands.Cog):
         await interaction.response.send_message(f"✅ Set **{role.name}** as the target for **{target_type}** roles.", ephemeral=True)
 
     async def _handle_view_config(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True) # Defer early
+        await interaction.response.defer(ephemeral=True)
         guild_settings = self.settings_cache.get(str(interaction.guild.id), {})
         admin_id = guild_settings.get("admin_target_role_id")
         user_id = guild_settings.get("user_target_role_id")
@@ -312,7 +314,7 @@ class CustomRoles(commands.Cog):
         await interaction.followup.send(embed=embed)
 
     async def _handle_register_role(self, interaction: discord.Interaction, role: Optional[discord.Role], user: Optional[discord.Member]):
-        await interaction.response.defer(ephemeral=True) # Defer early
+        await interaction.response.defer(ephemeral=True)
         if not role or not user:
             return await interaction.followup.send("❌ Both role and user are required for register.")
         
@@ -341,10 +343,9 @@ class CustomRoles(commands.Cog):
             ephemeral=True
         )
 
-    # --- NEW METHOD ---
     async def _handle_view_all_roles(self, interaction: discord.Interaction):
         """Generates and sends a list of all tracked roles, grouped by user."""
-        await interaction.response.defer(ephemeral=False)  # Public response
+        await interaction.response.defer(ephemeral=False)
         guild_id_str = str(interaction.guild.id)
         
         guild_roles = self.roles_cache.get(guild_id_str, {})
@@ -362,7 +363,7 @@ class CustomRoles(commands.Cog):
         for role_id_str, user_id in guild_roles.items():
             role = interaction.guild.get_role(int(role_id_str))
             if not role:
-                continue # Skip roles that were deleted but not cleaned up yet
+                continue
 
             user_id_str = str(user_id)
             if user_primary_map.get(user_id_str) == role.id:
@@ -391,7 +392,7 @@ class CustomRoles(commands.Cog):
                 other_mentions = ', '.join(r.mention for r in other_roles)
                 description_lines.append(f"  - **Others:** {other_mentions}")
             
-            description_lines.append("") # Add a blank line for spacing
+            description_lines.append("")
 
         if not description_lines:
              return await interaction.followup.send("No tracked custom roles were found on this server.")
@@ -402,7 +403,6 @@ class CustomRoles(commands.Cog):
             color=discord.Color.blue()
         )
         await interaction.followup.send(embed=embed)
-
 
     # --- Helper & Logic Methods ---
     async def _save_all_data(self):
@@ -416,6 +416,19 @@ class CustomRoles(commands.Cog):
         """Get the appropriate target role for a member based on their permissions."""
         settings = self.settings_cache.get(str(member.guild.id), {})
         key = "admin_target_role_id" if member.guild_permissions.administrator else "user_target_role_id"
+        role_id = settings.get(key)
+        return member.guild.get_role(role_id) if role_id else None
+
+    async def _get_current_target_role(self, member: discord.Member) -> Optional[discord.Role]:
+        """Get the target role based on whether user has admin target role assigned."""
+        settings = self.settings_cache.get(str(member.guild.id), {})
+        admin_target_id = settings.get("admin_target_role_id")
+        
+        # Check if user has the admin target role
+        has_admin_target = admin_target_id and any(role.id == admin_target_id for role in member.roles)
+        
+        # Use admin target if they have it, otherwise user target
+        key = "admin_target_role_id" if has_admin_target else "user_target_role_id"
         role_id = settings.get(key)
         return member.guild.get_role(role_id) if role_id else None
 
@@ -505,7 +518,7 @@ class CustomRoles(commands.Cog):
             try:
                 async with self._position_lock:
                     await role.edit(position=target_pos, reason="Positioning Tika Custom Role")
-                    await asyncio.sleep(0.5)  # Rate limiting
+                    await asyncio.sleep(0.5)
                     
                     # Verify the position was actually set
                     fresh_role = role.guild.get_role(role.id)
@@ -515,7 +528,7 @@ class CustomRoles(commands.Cog):
             except (discord.Forbidden, discord.HTTPException) as e:
                 self.logger.warning(f"Failed to position {role.name} on attempt {attempt+1}: {e}")
                 if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    delay = base_delay * (2 ** attempt)
                     await asyncio.sleep(delay)
                 else:
                     return False
