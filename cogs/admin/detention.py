@@ -149,13 +149,6 @@ class Detention(commands.Cog):
                 ephemeral=True
             )
         
-        # Check if trying to detain self
-        if user.id == interaction.user.id:
-            return await interaction.followup.send(
-                "You cannot detain yourself.", 
-                ephemeral=True
-            )
-        
         # Check if detention role is configured
         detention_role = self._get_detention_role(interaction.guild)
         if not detention_role:
