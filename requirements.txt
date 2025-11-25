@@ -16,5 +16,5 @@ ddgs
 # System Resource Monitoring (for resource_monitor)
 psutil
 
-# Data Manipulation (imported in core/bot.py)
+# Data Manipulation 
 polars-lts-cpu
